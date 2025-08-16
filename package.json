@@ -1,15 +1,25 @@
 {
-  "name": "nodejs",
+  "name": "reimaginedsv-api",
   "version": "1.0.0",
-  "description": "",
+  "description": "Modular monolith API with hexagonal seams, responder, and BFF",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test:smoke": "node scripts/smoke.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "@types/node": "^22.13.11"
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "morgan": "^1.10.0",
+    "uuid": "^9.0.1",
+    "openai": "^4.55.0",
+    "@pinecone-database/pinecone": "^4.0.0",
+    "@supabase/supabase-js": "^2.45.4",
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
   }
 }
