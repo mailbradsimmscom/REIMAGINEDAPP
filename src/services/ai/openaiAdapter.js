@@ -1,29 +1,42 @@
-const { OpenAI } = require('openai');
+// src/services/ai/openaiAdapter.js
+import OpenAI from 'openai';
 
-function createClient() {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
-}
+const apiKey = process.env.OPENAI_API_KEY || '';
+const client = apiKey ? new OpenAI({ apiKey }) : null;
 
-async function complete({ prompt, system }) {
-  const client = createClient();
-  if (!client) {
-    // Mock result — keeps dev flow unblocked if no key is present
-    return { text: `MOCK: ${prompt.slice(0, 120)}...` };
+const DEFAULT_EMBED_MODEL = process.env.EMBEDDING_MODEL || 'text-embedding-3-large';
+const VECTOR_DIM = Number(process.env.VECTOR_DIM || 3072);
+
+/**
+ * Create embeddings for an array of strings.
+ * Returns { vectors: number[][], model, dim }
+ */
+export async function embedBatch(texts, { model = DEFAULT_EMBED_MODEL } = {}) {
+  if (!texts || !Array.isArray(texts) || texts.length === 0) {
+    return { vectors: [], model, dim: VECTOR_DIM };
   }
 
-  const resp = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      ...(system ? [{ role: 'system', content: system }] : []),
-      { role: 'user', content: prompt }
-    ],
-    temperature: 0.3
+  // no-key fallback (dev): return tiny random vectors to keep code paths alive
+  if (!client) {
+    const vectors = texts.map(() =>
+      Array.from({ length: VECTOR_DIM }, () => Math.random() * 0.01)
+    );
+    return { vectors, model, dim: VECTOR_DIM, mock: true };
+  }
+
+  const resp = await client.embeddings.create({
+    input: texts,
+    model
   });
 
-  const text = resp.choices?.[0]?.message?.content || '';
-  return { text };
+  const vectors = resp.data.map(e => e.embedding);
+  return { vectors, model, dim: vectors[0]?.length || VECTOR_DIM };
 }
 
-module.exports = { openaiAdapter: { complete } };
+/**
+ * Convenience single-text embed → number[]
+ */
+export async function embedOne(text, opts = {}) {
+  const { vectors } = await embedBatch([text], opts);
+  return vectors[0] || [];
+}

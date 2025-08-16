@@ -1,11 +1,24 @@
-function serialize(responderPayload, { shape = 'api' } = {}) {
+// src/views/serializers.js
+// Serializers for different clients (web BFF vs verbose API)
+
+export function webSerializer(structured) {
+  // For web, keep it tight and display-focused
+  const { title, summary, bullets, cta } = structured || {};
   return {
-    title: responderPayload.title,
-    summary: responderPayload.summary,
-    bullets: responderPayload.bullets,
-    cta: responderPayload.cta || null,
-    raw: responderPayload.raw
+    title: title || 'Answer',
+    summary: summary || null,
+    bullets: Array.isArray(bullets) ? bullets : [],
+    cta: cta || null,
   };
 }
 
-module.exports = { serialize };
+export function apiSerializer(structured) {
+  // Verbose form: include raw and references
+  return structured || {
+    title: null,
+    summary: null,
+    bullets: [],
+    cta: null,
+    raw: { text: '', references: [] },
+  };
+}
