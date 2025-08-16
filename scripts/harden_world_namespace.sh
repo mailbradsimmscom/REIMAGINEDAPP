@@ -1,3 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cat > src/services/vector/pineconeAdapter.js <<'JS'
 const { Pinecone } = require('@pinecone-database/pinecone');
 
 function createClient() {
@@ -63,3 +67,12 @@ async function query({ vector, topK = 5, namespace = process.env.PINECONE_NAMESP
 }
 
 module.exports = { pineconeAdapter: { query } };
+JS
+
+# ensure env defaults
+touch .env
+grep -q '^WORLD_NAMESPACE=' .env || echo 'WORLD_NAMESPACE=world' >> .env
+grep -q '^WORLD_INCLUDE_MIN=' .env || echo 'WORLD_INCLUDE_MIN=0.75' >> .env
+grep -q '^WORLD_ALLOWLIST=' .env || echo 'WORLD_ALLOWLIST=*' >> .env
+
+echo "World guardrails installed. Click Stop → Run to reload."

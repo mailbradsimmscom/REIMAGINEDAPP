@@ -1,10 +1,10 @@
 const { Router } = require('express');
 const api = require('./api');
-const bff = require('./bff');
+const debug = require('./debug');
 
 const router = Router();
 
 router.use('/api', api);
-router.use('/bff', bff);
+router.use('/debug', debug);
 
 module.exports = router;
