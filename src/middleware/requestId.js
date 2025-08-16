@@ -1,8 +1,10 @@
-const { v4: uuid } = require('uuid');
+// src/middleware/requestId.js (ESM)
+import { randomUUID } from 'crypto';
 
-const requestId = (req, _res, next) => {
-  req.id = req.headers['x-request-id'] || uuid();
+export function requestId(req, res, next) {
+  const idFromHeader = req.headers['x-request-id'];
+  const id = (typeof idFromHeader === 'string' && idFromHeader.trim()) ? idFromHeader : randomUUID();
+  req.id = id;
+  res.setHeader('x-request-id', id);
   next();
-};
-
-module.exports = { requestId };
+}

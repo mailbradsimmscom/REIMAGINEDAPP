@@ -1,12 +1,12 @@
-const { Router } = require('express');
-const { handleQueryWeb, handleQueryIos } = require('../controllers/queryController');
+import { Router } from 'express';
 
 const router = Router();
 
-// Web-optimized payload
-router.post('/web/query', handleQueryWeb);
+// Example BFF endpoint
+router.get('/', (req, res) => {
+  res.json({ ok: true, route: 'bff root' });
+});
 
-// iOS-optimized payload
-router.post('/ios/query', handleQueryIos);
+// Add BFF logic here…
 
-module.exports = router;
+export default router;

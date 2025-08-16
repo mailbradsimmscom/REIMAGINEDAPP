@@ -2,11 +2,11 @@ import { Router } from 'express';
 
 const router = Router();
 
-// Example API endpoint
+// Example legacy endpoint
 router.get('/', (req, res) => {
-  res.json({ ok: true, route: 'api root' });
+  res.json({ ok: true, route: 'legacy root' });
 });
 
-// Add your other API endpoints here…
+// Keep old/compat routes here…
 
 export default router;

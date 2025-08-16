@@ -1,6 +1,7 @@
 {
   "name": "reimaginedsv-api",
   "version": "1.0.0",
+  "type": "module",
   "description": "Modular monolith API with hexagonal seams, responder, and BFF",
   "main": "index.js",
   "scripts": {

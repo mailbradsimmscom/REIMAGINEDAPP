@@ -6,33 +6,34 @@ const { serialize } = require('../views/serializers');
 
 const bodySchema = z.object({
   question: z.string().min(1),
-  metadata: z.object({
-    namespace: z.string().optional()
-  }).passthrough().optional()
+  metadata: z.record(z.any()).optional()
 });
 
-async function handleQuery(req, res, next) {
-  try {
-    const { question, metadata } = bodySchema.parse(req.body);
+function handleQueryFactory(defaultShape = 'api') {
+  return async function handleQuery(req, res, next) {
+    try {
+      const { question, metadata } = bodySchema.parse(req.body);
+      const ns = metadata?.namespace;
+      const ctx = await vectorService.retrieveContext(question, { topK: 5, namespace: ns });
 
-    const ctx = await vectorService.retrieveContext(
-      question,
-      { topK: 5, namespace: metadata?.namespace }
-    );
+      const draft = await aiService.answerQuestion(question, ctx, { metadata });
 
-    const draft = await aiService.answerQuestion(question, ctx, { metadata });
+      const styled = await responder.applyToneAndFormat(draft, {
+        // legacy layout pass-through is handled by responder env
+      });
 
-    const styled = await responder.applyToneAndFormat(draft, {
-      // legacy layout pass-through is enabled by env flag; title left null
-    });
-
-    const payload = serialize(styled, { shape: 'api' });
-    res.json(payload);
-  } catch (err) {
-    err.status = err.status || 400;
-    err.publicMessage = err.publicMessage || err.message;
-    next(err);
-  }
+      const payload = serialize(styled, { shape: defaultShape });
+      res.json(payload);
+    } catch (err) {
+      err.status = err.status || 400;
+      err.publicMessage = err.publicMessage || err.message;
+      next(err);
+    }
+  };
 }
 
-module.exports = { handleQuery };
+const handleQuery = handleQueryFactory('api');
+const handleQueryWeb = handleQueryFactory('web');
+const handleQueryIos = handleQueryFactory('ios');
+
+module.exports = { handleQuery, handleQueryWeb, handleQueryIos, handleQueryFactory };
