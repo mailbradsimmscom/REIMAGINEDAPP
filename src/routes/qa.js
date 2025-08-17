@@ -1,6 +1,6 @@
 // src/routes/qa.js
 import { Router } from 'express';
-import { insertFeedback } from '../services/feedbackService.js';
+import { saveFeedback } from '../services/sql/feedbackService.js';
 
 const router = Router();
 
@@ -8,41 +8,34 @@ const router = Router();
  * POST /qa/feedback
  * Body:
  * {
- *   "message": "useful",
- *   "rating": 5,
- *   "question": "How often to replace 5 micron?",
- *   "meta": {
- *     "answer_id": "ans_123",
- *     "intent": "maintenance",
- *     "entities": {"part":"filter"},
- *     "evidence_ids": ["doc1","doc2"]
- *   }
+ *   "question": "...",
+ *   "answer_id": "ans_123",   // optional
+ *   "thumb": "up" | "down" | "neutral",
+ *   "reason": "short text",
+ *   "intent": "maintenance",  // optional
+ *   "entities": {...},        // optional
+ *   "evidence_ids": ["doc1","doc2"] // optional
  * }
  */
 router.post('/feedback', async (req, res) => {
   try {
-    const { message, rating, question, meta } = req.body || {};
+    const { question, answer_id, thumb, reason, intent, entities, evidence_ids } = req.body || {};
 
-    // Derive a simple 'thumb' from rating if provided
-    let thumb = null;
-    if (typeof rating === 'number') {
-      thumb = rating >= 4 ? 'up' : rating <= 2 ? 'down' : null;
+    if (!question || !thumb) {
+      return res.status(400).json({ ok: false, error: 'Missing required fields: question, thumb' });
     }
 
-    const result = await insertFeedback({
-      question,
-      answerId: meta?.answer_id,
-      thumb,
-      reason: message,
-      intent: meta?.intent,
-      entities: meta?.entities,
-      evidenceIds: meta?.evidence_ids
-    });
+    const out = await saveFeedback({ question, answer_id, thumb, reason, intent, entities, evidence_ids });
+    if (!out.ok) return res.status(500).json({ ok: false, error: out.error });
 
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+router.get('/', (_req, res) => {
+  res.json({ ok: true, routes: ['POST /qa/feedback'] });
 });
 
 export default router;

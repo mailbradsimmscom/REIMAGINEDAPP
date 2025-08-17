@@ -1,32 +1,40 @@
-// src/routes/index.js
+// src/routes/index.js (ESM)
 import { Router } from 'express';
 
+// Import modules and normalize whether they export default/router/CommonJS
+import * as apiMod from './api.js';
+import * as debugMod from './debug.js';
+import * as legacyMod from './legacy.js';
+import * as bffMod from './bff.js';
+import * as qaMod from './qa.js';
+import * as adminMod from './admin.js';
 
+function asRouter(mod, label) {
+  const candidate = mod?.default ?? mod?.router ?? mod;
+  if (typeof candidate !== 'function') {
+    throw new Error(`[routes] ${label} did not export a Router (got: ${typeof candidate})`);
+  }
+  return candidate;
+}
 
-// new groups
-import qaRoutes from './qa.js';
-import api from './api.js';
-import debug from './debug.js';
-import legacy from './legacy.js';
-import bff from './bff.js';
-import adminRoutes from './admin.js';
-import topicsRoutes from './topics.js';
-import documentsRoutes from './documents.js';
-
+const api = asRouter(apiMod, 'api');
+const debug = asRouter(debugMod, 'debug');
+const legacy = asRouter(legacyMod, 'legacy');
+const bff = asRouter(bffMod, 'bff');
+const qa = asRouter(qaMod, 'qa');
+const admin = asRouter(adminMod, 'admin');
 
 const router = Router();
 
-// --- legacy/back-compat mounts
+// Primary mounts
 router.use('/api', api);
 router.use('/bff', bff);
 router.use('/debug', debug);
+router.use('/qa', qa);
+router.use('/admin', admin);
+
+// Legacy/back-compat mounts
 router.use('/legacy', legacy);
 router.use('/', legacy);
-
-// --- new clean routes
-router.use('/qa', qaRoutes);
-router.use('/admin', adminRoutes);
-router.use('/topics', topicsRoutes);
-router.use('/documents', documentsRoutes);
 
 export default router;

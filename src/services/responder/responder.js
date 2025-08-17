@@ -1,118 +1,122 @@
 // src/services/responder/responder.js
-// Turns raw context into a structured answer with tone-aware formatting
+// Shapes the final structured answer while honoring tone presets.
+// Keeps the same outward contract your routes rely on.
 
-import { pickTone } from './presets.js';
+import { selectTone } from './tonePresets.js';
 
-/**
- * shape:
- * {
- *   title: string|null,
- *   summary: string|null,
- *   bullets: string[],
- *   cta: { label, action } | null,
- *   raw: { text: string, references: Array<{id, score, source, text}> }
- * }
- */
-function emptyShape() {
-  return {
-    title: null,
-    summary: null,
-    bullets: [],
-    cta: null,
-    raw: { text: '', references: [] },
-  };
+function joinRefs(refs = []) {
+  return refs
+    .filter(r => r && (r.source || r.id))
+    .map(r => ({ id: r.id || null, source: r.source || null, score: r.score }))
+    .slice(0, 8);
 }
 
-function toTitle(s) {
-  if (!s) return null;
-  const t = s.trim().replace(/\s+/g, ' ');
-  return t.length ? t.charAt(0).toUpperCase() + t.slice(1) : null;
+// Primitive hazard detector to nudge a Safety block if context mentions risky ops.
+function detectSafety(context = '') {
+  const s = (context || '').toLowerCase();
+  const hits = [];
+  if (s.includes('pressure') || s.includes('depressur')) hits.push('Depressurize the system before opening any lines.');
+  if (s.includes('electrical') || s.includes('12v') || s.includes('240v') || s.includes('120v')) hits.push('Isolate electrical power before servicing.');
+  if (s.includes('chemical') || s.includes('acid') || s.includes('alkaline')) hits.push('Use gloves/eye protection for chemicals.');
+  if (s.includes('membrane')) hits.push('Avoid contamination of RO membranes; keep them sealed/wet as specified.');
+  return hits;
 }
 
-// Lightweight bullet extraction from a paragraph-ish text.
-// If lines already look like bullets/numbers, keep them; else split by sentences.
-function extractBullets(text, max = 5) {
-  if (!text) return [];
-  const lines = text
-    .split(/\r?\n/)
-    .map(l => l.trim())
-    .filter(Boolean);
+export function composeResponse({ question, contextText, references = [], tone }) {
+  const toneCfg = selectTone(tone);
 
-  let bullets = [];
-  if (lines.some(l => /^[-•*]\s+/.test(l) || /^\d+\./.test(l))) {
-    bullets = lines
-      .filter(l => /^[-•*]\s+/.test(l) || /^\d+\./.test(l))
-      .map(l => l.replace(/^[-•*]\s+/, '').trim());
-  } else {
-    // naive sentence split
-    bullets = text
-      .split(/(?<=[.!?])\s+/)
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
-  }
+  // Minimal extraction for common maintenance answers
+  const lines = (contextText || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const bullets = [];
+  const tools = [];
+  const steps = [];
 
-  // de-dup and limit
-  const seen = new Set();
-  const uniq = [];
-  for (const b of bullets) {
-    const k = b.toLowerCase();
-    if (!seen.has(k)) {
-      uniq.push(b);
-      seen.add(k);
+  for (const line of lines) {
+    const L = line.toLowerCase();
+
+    // naive tools/materials detection
+    if (L.startsWith('- ') || L.startsWith('• ')) {
+      // if list looks like tools, bucket tentatively
+      if (L.includes('filter') || L.includes('wrench') || L.includes('cloth') || L.includes('lubric')) {
+        tools.push(line.replace(/^[-•]\s*/, ''));
+        continue;
+      }
     }
-    if (uniq.length >= max) break;
-  }
-  return uniq;
-}
 
-function makeCta(tone, question) {
-  if (!tone?.includeCta) return null;
-  const q = (question || '').trim();
+    // steps extraction
+    if (/^\d+\./.test(line)) {
+      steps.push(line);
+      continue;
+    }
+
+    // general bullets (maintenance intervals, etc.)
+    if (L.includes('every ') || L.includes('replace') || L.includes('clean') || L.includes('purge')) {
+      bullets.push(line);
+      continue;
+    }
+  }
+
+  // Safety hints
+  const safety = detectSafety(contextText);
+
+  // Summary (first good lines or fallback)
+  const summary =
+    bullets[0] ||
+    steps[0]?.replace(/^\d+\.\s*/, '') ||
+    lines.slice(0, 1)[0] ||
+    'No specific procedures found in the provided context.';
+
+  // Build “raw” text in your recognizable house style
+  const h = toneCfg.headings;
+  const pfx = toneCfg.style.bulletsPrefix;
+
+  let rawParts = [];
+
+  rawParts.push(`**${h.nutshell}**`);
+  rawParts.push(summary);
+
+  if (toneCfg.style.includeTools && tools.length) {
+    rawParts.push(`\n**${h.tools || 'Tools & Materials'}**`);
+    for (const t of tools.slice(0, 8)) rawParts.push(`${pfx}${t}`);
+  }
+
+  if (toneCfg.style.includeSteps && steps.length) {
+    rawParts.push(`\n**${h.steps || 'Step-by-step'}**`);
+    for (const s of steps.slice(0, 12)) rawParts.push(s.replace(/^\d+\.\s*/, (m) => m)); // keep numbering if present
+  } else if (bullets.length) {
+    rawParts.push(`\n**${h.steps || 'Steps'}**`);
+    for (const b of bullets.slice(0, 8)) rawParts.push(`${pfx}${b}`);
+  }
+
+  if (toneCfg.style.includeSafety && safety.length) {
+    rawParts.push(`\n**${h.safety || 'Safety'}**`);
+    for (const s of safety) rawParts.push(`${pfx}${s}`);
+  }
+
+  // Optionally add a “What’s next” CTA
+  rawParts.push(`\n**${h.next || 'What’s next'}**`);
+  rawParts.push('Want me to tailor this to your exact model and usage?');
+
+  // References footer (IDs/short sources only)
+  const refs = joinRefs(references);
+  if (refs.length) {
+    rawParts.push(`\n**${h.refs || 'References'}**`);
+    for (const r of refs) rawParts.push(`${pfx}${r.source || r.id}`);
+  }
+
+  const rawText = rawParts.join('\n');
+
+  // Top-level structured response (stable to your serializers)
   return {
-    label: 'Want more detail?',
-    action: q ? `Refine: ${q}` : 'Refine this answer',
+    title: 'Answer',
+    summary,
+    bullets: bullets.slice(0, 5).map(b => b.replace(/^\d+\.\s*/, '')),
+    cta: null,
+    raw: {
+      text: rawText,
+      references: refs
+    }
   };
 }
 
-/**
- * Compose a structured response.
- * @param {object} params
- *  - question: string
- *  - contextText: string // concatenated retrieved chunks (step 3 will supply)
- *  - references: Array<{id, score, source, text}>
- *  - tone: 'concise' | 'coach' | 'hands_on'
- */
-export function composeResponse({ question, contextText, references = [], tone = 'concise' }) {
-  const preset = pickTone(tone);
-  const out = emptyShape();
-
-  // Title
-  out.title = toTitle(question) || 'Answer';
-
-  // Summary (tone-aware)
-  const baseSummary = contextText && contextText.length > 0
-    ? `In short: ${contextText.split(/\r?\n/)[0].trim()}`
-    : 'No specific context found.';
-
-  if (preset.name === 'concise') {
-    out.summary = baseSummary.replace(/^In short:\s*/i, '');
-  } else if (preset.name === 'hands_on') {
-    out.summary = 'Here’s the practical gist: ' + baseSummary.replace(/^In short:\s*/i, '');
-  } else {
-    // coach
-    out.summary = 'Big picture: ' + baseSummary.replace(/^In short:\s*/i, '');
-  }
-
-  // Bullets (tone-aware)
-  const maxBullets = preset.bulletsMax || 5;
-  out.bullets = extractBullets(contextText, maxBullets);
-
-  // CTA
-  out.cta = makeCta(preset, question);
-
-  // Raw
-  out.raw.text = contextText || '';
-  out.raw.references = Array.isArray(references) ? references : [];
-
-  return out;
-}
+export default { composeResponse };

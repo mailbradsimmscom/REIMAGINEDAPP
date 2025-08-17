@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>REIMAGINEDSV — Assistant</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>REIMAGINEDSV</h1>
+    <div class="subtitle">Practical answers with references</div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <form id="a">
+        <label>Question</label>
+        <textarea id="question" rows="3" placeholder="Ask about maintenance, troubleshooting, schedules…"></textarea>
+
+        <div class="row">
+          <div class="col">
+            <label>Tone</label>
+            <select id="tone">
+              <option value="skipper">Practical Skipper (default)</option>
+              <option value="coach">Supportive Coach</option>
+              <option value="tech">Technical</option>
+              <option value="brief">Brief</option>
+            </select>
+          </div>
+          <div class="col">
+            <label>Boat ID (optional)</label>
+            <input id="boat" type="text" placeholder="uuid or blank" />
+          </div>
+        </div>
+
+        <div class="row">
+          <button type="submit">Ask</button>
+          <label class="inline">
+            <input type="checkbox" id="apiMode" />
+            Show API payload
+          </label>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel" id="result">
+      <div id="answer-title"></div>
+      <div id="answer-summary" class="summary"></div>
+      <div id="answer-raw" class="raw"></div>
+      <pre id="answer-json" class="json" hidden></pre>
+    </section>
+  </main>
+
+  <footer>
+    <small>Server: <span id="server"></span></small>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
