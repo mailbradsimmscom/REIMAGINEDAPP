@@ -1,70 +1,101 @@
 // public/app.js
-const form = document.getElementById('ask-form');
-const questionEl = document.getElementById('question');
-const toneEl = document.getElementById('tone');
-const boatEl = document.getElementById('boat');
-const apiModeEl = document.getElementById('apiMode');
 
-const titleEl = document.getElementById('answer-title');
-const summaryEl = document.getElementById('answer-summary');
-const rawEl = document.getElementById('answer-raw');
-const jsonEl = document.getElementById('answer-json');
-const serverEl = document.getElementById('server');
+window.addEventListener('DOMContentLoaded', () => {
+  // Find the form robustly
+  let form = document.getElementById('ask-form')
+          || document.querySelector('form')
+          || (document.getElementById('question') && document.getElementById('question').closest('form'));
 
-serverEl.textContent = window.location.origin;
+  const questionEl = document.getElementById('question');
+  const boatEl     = document.getElementById('boat');
+  const apiModeEl  = document.getElementById('apiMode');
 
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const question = questionEl.value.trim();
-  if (!question) return;
+  const titleEl    = document.getElementById('answer-title');
+  const summaryEl  = document.getElementById('answer-summary');
+  const rawEl      = document.getElementById('answer-raw');
+  const jsonEl     = document.getElementById('answer-json');
+  const serverEl   = document.getElementById('server');
 
-  const tone = toneEl.value;
-  const boat_id = boatEl.value.trim() || null;
-  const endpoint = apiModeEl.checked ? '/bff/api/query' : '/bff/web/query';
-
-  titleEl.textContent = '…thinking';
-  summaryEl.textContent = '';
-  rawEl.innerHTML = '';
-  jsonEl.hidden = true;
-  jsonEl.textContent = '';
-
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, tone, boat_id })
-    });
-    const data = await res.json();
-
-    titleEl.textContent = data.title || 'Answer';
-    summaryEl.textContent = data.summary || '';
-
-    const md = (data.raw && data.raw.text) || '';
-    renderMarkdownInto(rawEl, md);
-
-    if (apiModeEl.checked) {
-      jsonEl.hidden = false;
-      jsonEl.textContent = JSON.stringify(data, null, 2);
-    }
-  } catch (err) {
-    titleEl.textContent = 'Error';
-    summaryEl.textContent = err.message || String(err);
+  if (serverEl) {
+    try { serverEl.textContent = window.location.origin; } catch (_) {}
   }
+
+  if (!form) {
+    console.warn('[ui] No form found. Available forms:', Array.from(document.forms).map(f => f.id || '(no id)'));
+    return;
+  }
+  if (!(questionEl && boatEl && apiModeEl && titleEl && summaryEl && rawEl && jsonEl)) {
+    console.warn('[ui] Missing expected elements');
+    return;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const question = (questionEl.value || '').trim();
+    if (!question) return;
+
+    const boat_id = (boatEl.value || '').trim() || null;
+    const endpoint = apiModeEl.checked ? '/bff/api/query' : '/bff/web/query';
+
+    // Reset output
+    titleEl.textContent = '…thinking';
+    summaryEl.textContent = '';
+    rawEl.innerHTML = '';
+    jsonEl.hidden = true;
+    jsonEl.textContent = '';
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // ⬇️ No "tone" anymore — just question + optional boat
+        body: JSON.stringify({ question, boat_id })
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      }
+
+      const data = await res.json();
+
+      titleEl.textContent = data.title || 'Answer';
+      summaryEl.textContent = data.summary || '';
+
+      const md = (data.raw && data.raw.text) ? String(data.raw.text) : '';
+      renderMarkdownInto(rawEl, md);
+
+      if (apiModeEl.checked) {
+        jsonEl.hidden = false;
+        jsonEl.textContent = JSON.stringify(data, null, 2);
+      }
+    } catch (err) {
+      titleEl.textContent = 'Error';
+      summaryEl.textContent = err?.message || String(err);
+    }
+  });
 });
 
-// Minimal MD → HTML with lists, headings, bold, and paragraphs
+// Minimal Markdown-ish rendering
 function renderMarkdownInto(node, md) {
-  const blocks = md.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+  const blocks = String(md)
+    .split(/\n{2,}/)
+    .map(b => b.trim())
+    .filter(Boolean);
+
   const container = document.createElement('div');
   container.className = 'md';
 
   for (const b of blocks) {
+    // **Heading**
     if (/^\*\*.+\*\*$/.test(b)) {
       const h = document.createElement('h3');
       h.textContent = b.replace(/^\*\*(.+)\*\*$/, '$1');
       container.appendChild(h);
       continue;
     }
+    // 1. Numbered list
     if (/^(\d+\.\s+.+(\n)?)+$/m.test(b)) {
       const ol = document.createElement('ol');
       b.split('\n').forEach(line => {
@@ -78,6 +109,7 @@ function renderMarkdownInto(node, md) {
       container.appendChild(ol);
       continue;
     }
+    // • Bulleted list
     if (/^(•\s+.+(\n)?)+$/m.test(b)) {
       const ul = document.createElement('ul');
       b.split('\n').forEach(line => {
@@ -91,12 +123,13 @@ function renderMarkdownInto(node, md) {
       container.appendChild(ul);
       continue;
     }
+    // Paragraph
     const p = document.createElement('p');
     p.innerHTML = inlineMD(b.replace(/\n/g, ' '));
     container.appendChild(p);
   }
 
-  // Collapsible for very long content
+  // Collapsible for long content
   node.innerHTML = '';
   if (container.textContent.length > 2000) {
     const clip = document.createElement('div');
@@ -119,7 +152,5 @@ function renderMarkdownInto(node, md) {
 }
 
 function inlineMD(s) {
-  // bold
-  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  return s;
+  return String(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 }

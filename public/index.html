@@ -15,21 +15,12 @@
   <main>
     <section class="panel">
       <form id="a">
-        <label>Question</label>
+        <label for="question">Question</label>
         <textarea id="question" rows="3" placeholder="Ask about maintenance, troubleshooting, schedules…"></textarea>
 
         <div class="row">
           <div class="col">
-            <label>Tone</label>
-            <select id="tone">
-              <option value="skipper">Practical Skipper (default)</option>
-              <option value="coach">Supportive Coach</option>
-              <option value="tech">Technical</option>
-              <option value="brief">Brief</option>
-            </select>
-          </div>
-          <div class="col">
-            <label>Boat ID (optional)</label>
+            <label for="boat">Boat ID (optional)</label>
             <input id="boat" type="text" placeholder="uuid or blank" />
           </div>
         </div>
@@ -56,6 +47,6 @@
     <small>Server: <span id="server"></span></small>
   </footer>
 
-  <script src="/app.js"></script>
+  <script src="/app.js" defer></script>
 </body>
 </html>
