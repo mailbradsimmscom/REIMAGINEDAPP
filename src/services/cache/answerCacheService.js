@@ -1,169 +1,167 @@
 // src/services/cache/answerCacheService.js
-// Semantic cache for answers using OpenAI embeddings + cosine similarity.
-// Compatible with existing Supabase schema: answers_cache(intent_key, boat_profile_id, answer_text, evidence_ids, expires_at)
-
-import { supabase } from '../../config/supabase.js';
-import { embedOne } from '../ai/openaiAdapter.js';
-
-// --------- ENV & utils
-const SIM_THRESHOLD = Number(process.env.SIMILARITY_THRESHOLD || 0.86);
-const CACHE_TTL_MIN = Number(process.env.CACHE_TTL_MINUTES || 180); // 3h default
-const CACHE_SCAN_LIMIT = Number(process.env.CACHE_SCAN_LIMIT || 50);
-const EMBED_MODEL = process.env.EMBEDDING_MODEL || 'text-embedding-3-large';
-
-function nowIso() {
-  return new Date().toISOString();
-}
-function addMinutes(dateIso, minutes) {
-  const d = new Date(dateIso);
-  d.setMinutes(d.getMinutes() + minutes);
-  return d.toISOString();
-}
-
-// Cosine similarity for two numeric arrays
-function cosine(a = [], b = []) {
-  if (!a.length || !b.length || a.length !== b.length) return 0;
-  let dot = 0, na = 0, nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i], y = b[i];
-    dot += x * y;
-    na += x * x;
-    nb += y * y;
-  }
-  if (!na || !nb) return 0;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
-}
-
-// 64-bit SimHash (sign random projections over embedding) for LSH-like bucketing
-// We use a stable seeded pseudo-random basis derived from the index; here we fake a simple deterministic pattern.
-function simhash64(vec = []) {
-  const BITS = 64;
-  const acc = new Array(BITS).fill(0);
-  // Simple, deterministic "random" weights per dimension-bit to avoid extra deps.
-  for (let i = 0; i < vec.length; i++) {
-    const v = vec[i];
-    // fold i into 64 "hash lanes"
-    for (let b = 0; b < BITS; b++) {
-      const sign = ((i * 1315423911) ^ (b * 2654435761)) & 1 ? 1 : -1;
-      acc[b] += v * sign;
-    }
-  }
-  // produce 64-bit hex string
-  let hi = 0n, lo = 0n;
-  for (let b = 0; b < BITS; b++) {
-    const bit = acc[b] >= 0 ? 1n : 0n;
-    if (b < 32) {
-      hi = (hi << 1n) | bit;
-    } else {
-      lo = (lo << 1n) | bit;
-    }
-  }
-  const hiHex = hi.toString(16).padStart(8, '0');
-  const loHex = lo.toString(16).padStart(8, '0');
-  return `${hiHex}${loHex}`;
-}
-
-// Build an intent_key that buckets by model + boat + simhash
-function makeIntentKey({ model, boatId, simhash }) {
-  // Keep it short & filterable
-  return `sem:${model}:${boatId || 'none'}:${simhash}`;
-}
-
-// Parse JSON in answer_text safely
-function safeParse(jsonText) {
-  try { return JSON.parse(jsonText); } catch { return null; }
-}
-
-// --------- Public API
+import supabase from '../../config/supabase.js';
+import { createHash } from 'node:crypto';
+import { embed } from '../ai/aiService.js';
 
 /**
- * Try to hit the cache semantically.
- * 1) Embed the incoming question
- * 2) Compute simhash and query recent entries in that bucket (same boat + model)
- * 3) Recompute cosine against stored embeddings (kept inside answer_text JSON)
- * Returns { hit: true, payload, evidence_ids } on success; otherwise { hit: false }
+ * Normalize the question so semantically equivalent strings hash the same.
  */
-export async function cacheLookup({ question, boatId }) {
-  if (!supabase || !question) return { hit: false, reason: 'no_supabase_or_question' };
-
-  const qEmbed = await embedOne(question);
-  if (!qEmbed?.length) return { hit: false, reason: 'no_embedding' };
-
-  const bucket = makeIntentKey({ model: EMBED_MODEL, boatId, simhash: simhash64(qEmbed) });
-
-  // Fetch recent entries for this exact bucket
-  const { data, error } = await supabase
-    .from('answers_cache')
-    .select('id, intent_key, boat_profile_id, answer_text, evidence_ids, expires_at, created_at')
-    .eq('intent_key', bucket)
-    .order('created_at', { ascending: false })
-    .limit(CACHE_SCAN_LIMIT);
-
-  if (error) return { hit: false, reason: 'supabase_error:' + error.message };
-
-  const now = Date.now();
-  for (const row of data || []) {
-    // TTL check
-    if (row.expires_at && new Date(row.expires_at).getTime() < now) continue;
-
-    const payload = safeParse(row.answer_text);
-    const storedEmbed = payload?.questionEmbedding;
-    if (!Array.isArray(storedEmbed) || storedEmbed.length !== qEmbed.length) continue;
-
-    const sim = cosine(qEmbed, storedEmbed);
-    if (sim >= SIM_THRESHOLD) {
-      return {
-        hit: true,
-        payload, // structured answer we stored
-        evidence_ids: Array.isArray(row.evidence_ids) ? row.evidence_ids : [],
-        meta: { cache_id: row.id, similarity: sim, bucket }
-      };
-    }
-  }
-
-  return { hit: false, reason: 'no_match' };
+function normalizeQuestion(q = '') {
+  return String(q)
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
- * Save answer in cache with semantic metadata. Non-blocking: errors are returned but callers can ignore.
- * We store:
- *  - intent_key: sem:<model>:<boatId>:<simhash64>
- *  - answer_text: JSON.stringify({ question, questionEmbedding, structuredAnswer, references })
- *  - evidence_ids: mapped from references ids
+ * Deterministic short hash (sha1 base64url, 16 chars).
  */
-export async function cacheStore({ question, boatId, structuredAnswer, references }) {
-  if (!supabase || !question || !structuredAnswer) return { ok: false, reason: 'missing_input' };
-
-  const qEmbed = await embedOne(question);
-  if (!qEmbed?.length) return { ok: false, reason: 'no_embedding' };
-
-  const bucket = makeIntentKey({ model: EMBED_MODEL, boatId, simhash: simhash64(qEmbed) });
-  const createdAt = nowIso();
-  const expiresAt = addMinutes(createdAt, CACHE_TTL_MIN);
-
-  const payload = {
-    model: EMBED_MODEL,
-    question,
-    questionEmbedding: qEmbed,
-    structuredAnswer,
-    references: references || []
-  };
-
-  const evidence_ids = Array.isArray(references)
-    ? references.map(r => r?.id).filter(Boolean)
-    : [];
-
-  const { error } = await supabase
-    .from('answers_cache')
-    .insert([{
-      intent_key: bucket,
-      boat_profile_id: boatId || null, // schema uses boat_profile_id
-      answer_text: JSON.stringify(payload),
-      evidence_ids,
-      created_at: createdAt,
-      expires_at: expiresAt
-    }]);
-
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, bucket, expires_at: expiresAt };
+function shortHash(s) {
+  const h = createHash('sha1').update(s).digest('base64url');
+  return h.slice(0, 16);
 }
+
+/**
+ * Compute the semantic intent key used in answers_cache.intent_key.
+ * Intent key includes model + optional boat + short hash of the normalized text.
+ */
+function computeIntentKey({ question, boatId }) {
+  const model = process.env.EMBEDDING_MODEL || 'text-embedding-3-large';
+  const normalized = normalizeQuestion(question || '');
+  // For future: could include a projection of the embedding to avoid near-duplicate collisions
+  const h = shortHash(normalized);
+  const boatPart = boatId ? String(boatId) : 'none';
+  return `sem:${model}:${boatPart}:${h}`;
+}
+
+/**
+ * TTL policy (in hours). Default 3h.
+ */
+function ttlHours() {
+  const v = Number(process.env.CACHE_TTL_HOURS || 3);
+  return Number.isFinite(v) && v > 0 ? v : 3;
+}
+
+/**
+ * Lookup an answer in answers_cache by semantic key (and boat if provided).
+ * Soft-fails to {hit:false} if Supabase is unavailable.
+ */
+export async function cacheLookup({ question, boatId = null }) {
+  if (!supabase) return { hit: false, reason: 'no_supabase' };
+
+  try {
+    const intentKey = computeIntentKey({ question, boatId });
+
+    const { data, error } = await supabase
+      .from('answers_cache')
+      .select('id, intent_key, boat_profile_id, answer_text, evidence_ids, created_at, expires_at')
+      .eq('intent_key', intentKey)
+      .maybeSingle();
+
+    if (error || !data) {
+      return { hit: false, intentKey };
+    }
+
+    // Optional: refresh-on-hit policy — extend TTL on access
+    const now = Date.now();
+    const exp = data.expires_at ? new Date(data.expires_at).getTime() : 0;
+    if (exp && exp < now) {
+      // expired; treat as miss
+      return { hit: false, intentKey, expired: true };
+    }
+
+    // Lazy refresh: bump expires_at forward without blocking
+    (async () => {
+      try {
+        const newExp = new Date(now + ttlHours() * 3600 * 1000).toISOString();
+        await supabase
+          .from('answers_cache')
+          .update({ expires_at: newExp })
+          .eq('id', data.id);
+      } catch { /* ignore */ }
+    })();
+
+    let payload = null;
+    try {
+      payload = JSON.parse(data.answer_text || 'null');
+    } catch {
+      payload = null;
+    }
+
+    return {
+      hit: true,
+      intentKey,
+      id: data.id,
+      payload,
+      evidence_ids: Array.isArray(data.evidence_ids) ? data.evidence_ids : [],
+      created_at: data.created_at,
+      expires_at: data.expires_at
+    };
+  } catch (e) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[cacheLookup] error:', e.message);
+    }
+    return { hit: false, reason: 'exception' };
+  }
+}
+
+/**
+ * Store an answer in answers_cache.
+ * `structuredAnswer` should be the full structured payload we return to clients.
+ * `references` is an array of {id,source,score} (stored into evidence_ids).
+ */
+export async function cacheStore({ question, boatId = null, structuredAnswer, references = [] }) {
+  if (!supabase) return { ok: false, reason: 'no_supabase' };
+
+  try {
+    const intentKey = computeIntentKey({ question, boatId });
+    const now = Date.now();
+    const expiresAt = new Date(now + ttlHours() * 3600 * 1000).toISOString();
+
+    const evidence_ids = references
+      .map(r => r?.id)
+      .filter(Boolean)
+      .slice(0, 16); // don’t bloat rows
+
+    const answer_text = JSON.stringify(structuredAnswer || null);
+
+    const { error } = await supabase
+      .from('answers_cache')
+      .upsert(
+        {
+          intent_key: intentKey,
+          boat_profile_id: boatId || null,
+          answer_text,
+          evidence_ids,
+          created_at: new Date(now).toISOString(),
+          expires_at: expiresAt
+        },
+        {
+          onConflict: 'intent_key'
+        }
+      );
+
+    if (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[cacheStore] supabase upsert error:', error.message);
+      }
+      return { ok: false, intentKey, error: error.message };
+    }
+
+    return { ok: true, intentKey, expiresAt };
+  } catch (e) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[cacheStore] error:', e.message);
+    }
+    return { ok: false, reason: 'exception' };
+  }
+}
+
+/**
+ * Expose a helper to compute the semantic key externally (debug/admin use).
+ */
+export function computeCacheKeyPreview({ question, boatId = null }) {
+  return computeIntentKey({ question, boatId });
+}
+
+export default { cacheLookup, cacheStore, computeCacheKeyPreview };

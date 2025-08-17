@@ -1,26 +1,21 @@
-const { openaiAdapter } = require('./openaiAdapter');
-const { buildSystemPrompt } = require('../../config/prompt');
+// src/services/ai/aiService.js
+import { embedText, chatComplete } from './openaiAdapter.js';
 
-async function answerQuestion(question, contextList = [], { metadata } = {}) {
-  const contextBlock = contextList
-    .map((c, i) => `# Context ${i + 1}\n${c.text || c.content || ''}`)
-    .join('\n\n');
-
-  const system = buildSystemPrompt();
-
-  const prompt = [
-    contextBlock ? `Use this context when helpful:\n${contextBlock}\n` : '',
-    `User question: ${question}\n`,
-    metadata ? `Metadata: ${JSON.stringify(metadata).slice(0, 800)}\n` : '',
-    'Respond following the Response Style Policy exactly.'
-  ].join('\n');
-
-  const out = await openaiAdapter.complete({ prompt, system });
-  // Return the raw text so the legacy layout comes through untouched
-  return {
-    text: out.text,
-    references: contextList.map(c => c.source).filter(Boolean)
-  };
+/**
+ * Return a plain embedding vector (array of numbers) for a single text.
+ * Mixer expects this shape.
+ */
+export async function embed(text) {
+  const { vector } = await embedText(text);
+  return Array.isArray(vector) ? vector : [];
 }
 
-module.exports = { aiService: { answerQuestion } };
+/**
+ * Return just the completion string (the responder composes structure).
+ */
+export async function complete({ prompt, system, temperature, model }) {
+  const { text } = await chatComplete({ system, user: prompt, temperature, model });
+  return text;
+}
+
+export default { embed, complete };
