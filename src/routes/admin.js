@@ -6,7 +6,7 @@ import {
   cacheStore,
   computeCacheKeyPreview
 } from '../services/cache/answerCacheService.js';
-import { embed } from '../services/ai/aiService.js';
+import { embedText } from '../services/ai/aiService.js';
 
 const router = Router();
 

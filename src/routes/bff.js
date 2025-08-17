@@ -1,16 +1,16 @@
+// src/routes/bff.js
 import { Router } from 'express';
 import { composeResponse } from '../services/responder/responder.js';
 import { webSerializer, apiSerializer } from '../views/serializers.js';
 import { buildContextMix } from '../services/retrieval/mixerService.js';
 import { cacheLookup, cacheStore } from '../services/cache/answerCacheService.js';
 import { persistConversation } from '../services/sql/persistenceService.js';
-import PERSONA from '../config/persona.js';
 
 const router = Router();
 
 async function handleQuery(req, res, { client = 'web' } = {}) {
   try {
-    const { question, boat_id, namespace, topK, context, references } = req.body || {};
+    const { question, tone, boat_id, namespace, topK, context, references } = req.body || {};
     const requestId = req.id;
 
     if (!question || !String(question).trim()) {
@@ -23,7 +23,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
     let fromCache = false;
     let structured;
 
-    // 0) If caller provided explicit context, skip cache & retrieval
+    // If explicit context is provided, skip cache & retrieval
     if (typeof context === 'string' || Array.isArray(context)) {
       contextText = typeof context === 'string' ? context : context.filter(Boolean).join('\n');
       refs = Array.isArray(references) ? references : [];
@@ -31,16 +31,16 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
         question,
         contextText,
         references: refs,
-        system: PERSONA,          // <-- use persona file for house style
+        tone
       });
     } else {
-      // 1) Try semantic cache
+      // 1) Semantic cache
       const hit = await cacheLookup({ question, boatId: boat_id || null });
-      if (hit.hit && hit.payload?.structuredAnswer) {
-        structured = hit.payload.structuredAnswer;
+      if (hit.hit && hit.payload?.raw?.text) {
+        structured = hit.payload;
         fromCache = true;
       } else {
-        // 2) Retrieval (SQL playbooks + boat knowledge + vector)
+        // 2) Retrieval: SQL-first (playbooks + boat knowledge), then vector
         const mix = await buildContextMix({
           question,
           boatId: boat_id || null,
@@ -56,23 +56,22 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
           question,
           contextText,
           references: refs,
-          system: PERSONA,        // <-- always apply the same tone/style
+          tone
         });
       }
     }
 
     // 3) Serialize for client
-    let payload =
-      client === 'api'
-        ? apiSerializer(structured)
-        : webSerializer(structured);
+    let payload = client === 'api' ? apiSerializer(structured) : webSerializer(structured);
 
     if (process.env.DEBUG_SEARCH === 'true' && client === 'api' && mixMeta) {
       payload._retrieval = mixMeta;
     }
-    if (fromCache) payload._cache = { hit: true };
+    if (fromCache) {
+      payload._cache = { hit: true };
+    }
 
-    // 4) Persist + cache (async, non-blocking)
+    // 4) Background persistence + cache store (non-blocking)
     (async () => {
       try {
         const topScores = (structured?.raw?.references || [])
@@ -121,12 +120,17 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
   }
 }
 
-// Web BFF
+// Web BFF (UI default)
 router.post('/web/query', async (req, res) => {
   await handleQuery(req, res, { client: 'web' });
 });
 
-// API (verbose)
+// iOS BFF (kept for parity; tone is handled in composeResponse/persona)
+router.post('/ios/query', async (req, res) => {
+  await handleQuery(req, res, { client: 'ios' });
+});
+
+// API (verbose; includes optional _retrieval when DEBUG_SEARCH=true)
 router.post('/api/query', async (req, res) => {
   await handleQuery(req, res, { client: 'api' });
 });

@@ -1,21 +1,22 @@
 // src/services/ai/aiService.js
-import { embedText, chatComplete } from './openaiAdapter.js';
+import { completeChat, embedOne } from './openaiAdapter.js';
+import { getSystemPreamble } from '../policy/policy.js';
 
-/**
- * Return a plain embedding vector (array of numbers) for a single text.
- * Mixer expects this shape.
- */
-export async function embed(text) {
-  const { vector } = await embedText(text);
-  return Array.isArray(vector) ? vector : [];
-}
-
-/**
- * Return just the completion string (the responder composes structure).
- */
-export async function complete({ prompt, system, temperature, model }) {
-  const { text } = await chatComplete({ system, user: prompt, temperature, model });
+export async function completeWithPolicy({ prompt, systemExtra = '', temperature = 0.2 }) {
+  const system = [getSystemPreamble(), systemExtra].filter(Boolean).join('\n\n');
+  const messages = [
+    { role: 'system', content: system },
+    { role: 'user', content: prompt }
+  ];
+  const { text } = await completeChat({ messages, temperature });
   return text;
 }
 
-export default { embed, complete };
+export async function embedText(text) {
+  return embedOne(text, { model: process.env.EMBEDDING_MODEL || 'text-embedding-3-large' });
+}
+
+export default {
+  completeWithPolicy,
+  embedText
+};

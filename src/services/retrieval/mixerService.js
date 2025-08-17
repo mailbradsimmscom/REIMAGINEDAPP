@@ -22,6 +22,121 @@ function cleanChunk(t = '') {
     .trim();
 }
 
+/* ---------- Intent hints & stoplists ---------- */
+function detectIntent(question) {
+  const q = String(question || '').toLowerCase();
+  const helmish = /\b(helm|station|transfer|take\s*control|upper|lower|vc[-\s]?20|zf)\b/;
+  if (helmish.test(q)) return 'helm-transfer';
+  return 'generic';
+}
+
+function stoplistForIntent(intent) {
+  // Terms that commonly bleed in from general manuals and are irrelevant for helm transfer.
+  const common = [
+    /\bbattery|batteries\b/i,
+    /\bbow\s*thruster\b/i,
+    /\bweekly\s*checks?\b/i,
+    /\blife\s*jackets?\b/i,
+    /\bwinch(es)?\b/i,
+    /\bpolish\b/i,
+    /\bclean(?:ing)?\b/i,
+    /\bwash\s*down\b/i,
+    /\bventilation systems?\b/i,
+    /\b(stainless|lifelines|stanchions)\b/i,
+    /\banchor\b/i,
+    /\bdeck\s+gear\b/i,
+    /\bwatermaker\b/i,
+    /\baircon\b/i,
+    /\bgenerator\b/i,
+    /\bshower\b/i,
+  ];
+
+  if (intent === 'helm-transfer') {
+    return [
+      ...common,
+      /\b(toilets?|heads?)\b/i,
+      /\bbilge(s)?\b/i,
+      /\bweekly\s+maintenance\b/i,
+      /\bpropeller\b/i,
+      /\bfeather\b/i,
+      /\bsail\s*drive\b/i,
+      /\bcharge(?:r|s|ing)?\b/i,
+    ];
+  }
+  return common;
+}
+
+function positiveHintsForIntent(intent) {
+  if (intent === 'helm-transfer') {
+    return [
+      'helm', 'station', 'transfer', 'select', 'control',
+      'upper', 'lower', 'vc20', 'vc-20', 'zf', 'active station',
+      'neutral', 'inhibit', 'take control', 'led', 'n2k', 'nmea', 'can'
+    ];
+  }
+  return [];
+}
+
+/* ---------- Scoring / re-ranking ---------- */
+function scoreChunkByHints(text, hints = [], penalties = []) {
+  const s = String(text || '').toLowerCase();
+  let score = 0;
+
+  // reward: hint overlap
+  for (const h of hints) {
+    if (!h) continue;
+    const re = new RegExp(`\\b${escapeRegex(h)}\\b`, 'i');
+    if (re.test(s)) score += 2; // hints are meaningful
+  }
+
+  // penalty: stoplist matches
+  for (const p of penalties) {
+    if (p.test(s)) score -= 3;
+  }
+
+  // small reward for strongly topical words even if not in hints
+  if (/\b(helm|station|transfer|vc[-\s]?20|zf)\b/i.test(s)) score += 2;
+
+  return score;
+}
+
+function escapeRegex(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function reRankAndPrune(matches, { keep = 4, intent }) {
+  if (!Array.isArray(matches) || !matches.length) return [];
+
+  const penalties = stoplistForIntent(intent);
+  const hints = positiveHintsForIntent(intent);
+
+  // score, drop negatives, sort, and take top-K
+  const scored = matches
+    .map(m => ({
+      ...m,
+      _scoreLocal: scoreChunkByHints(m.text || '', hints, penalties)
+    }))
+    .filter(m => m._scoreLocal > 0) // cut obvious off-topic chunks
+    .sort((a, b) => {
+      // prefer higher pinecone score, then local topical score
+      const pv = (b.score || 0) - (a.score || 0);
+      if (pv !== 0) return pv;
+      return (b._scoreLocal || 0) - (a._scoreLocal || 0);
+    });
+
+  // avoid duplicates by id/text prefix
+  const seen = new Set();
+  const out = [];
+  for (const m of scored) {
+    const key = m.id || (m.text || '').slice(0, 160);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
+    if (out.length >= keep) break;
+  }
+  return out;
+}
+
 /* ---------- Utility ---------- */
 function dedupById(items) {
   const seen = new Set();
@@ -38,6 +153,15 @@ function dedupById(items) {
 function onTopic(hints, text) {
   const s = String(text || '').toLowerCase();
   return hints.some(h => s.includes(h));
+}
+
+function capContext(text, maxChars = 6000) {
+  const t = String(text || '');
+  if (t.length <= maxChars) return t;
+  // try to cut at a paragraph boundary
+  const cut = t.slice(0, maxChars);
+  const lastBreak = Math.max(cut.lastIndexOf('\n\n'), cut.lastIndexOf('\n'), cut.lastIndexOf('. '));
+  return cut.slice(0, lastBreak > 1200 ? lastBreak : maxChars);
 }
 
 /* ---------- Boat-specific SQL (optional) ---------- */
@@ -62,6 +186,7 @@ async function fetchBoatKnowledge(boatId, limit = 2) {
 async function vectorRetrieve(question, { topK = 8, namespace, hints }) {
   const out = { defaultMatches: [], worldMatches: [] };
 
+  // resolve embed function for safety regardless of how aiService is imported
   const embedFn =
     ai.embed ||
     (ai.aiService && ai.aiService.embed) ||
@@ -102,7 +227,6 @@ async function vectorRetrieve(question, { topK = 8, namespace, hints }) {
       topK: Math.min(k, 5),
       namespace: worldNs
     });
-    // Score/allowlist/thresholds are already applied in your adapter; keep a light topical filter here too:
     out.worldMatches = (w || [])
       .filter(m => m && m.text)
       .map(m => ({ ...m, text: cleanChunk(m.text) }));
@@ -110,17 +234,17 @@ async function vectorRetrieve(question, { topK = 8, namespace, hints }) {
     out.worldMatches = [];
   }
 
-  // topical filter for default namespace
+  // light topical filter before deeper pruning
   const topical = out.defaultMatches.filter(m => onTopic(hints, m.text));
   topical.sort((a, b) => (b.score || 0) - (a.score || 0));
 
-  out.defaultMatches = topical.slice(0, 5);
-  out.worldMatches = out.worldMatches.slice(0, 1);
+  out.defaultMatches = topical.slice(0, 8); // keep some for re-ranker
+  out.worldMatches = out.worldMatches.slice(0, 2);
 
   return out;
 }
 
-/* ---------- Main: SQL-first (playbooks → boat) then vector ---------- */
+/* ---------- Main: SQL-first (playbooks → boat) then vector + re-rank ---------- */
 export async function buildContextMix({ question, boatId = null, namespace, topK = 8, requestId }) {
   const meta = {
     requestId,
@@ -129,19 +253,21 @@ export async function buildContextMix({ question, boatId = null, namespace, topK
     sql_selected: 0,
     vec_default_matches: 0,
     vec_world_matches: 0,
+    pruned_default: 0,
+    pruned_world: 0,
     failures: []
   };
 
+  const intent = detectIntent(question);
   const hints = derivePlaybookKeywords(question);
   const parts = [];
   const refs = [];
 
-  // 1) Playbooks (hard priority)
+  // 1) Playbooks (hard priority) — standards_playbooks → context
   try {
     const pbs = await searchPlaybooks(question, { limit: 3 });
     meta.sql_rows += pbs.length;
 
-    // Keep the best one (or two) so they dominate context
     for (const pb of pbs.slice(0, 2)) {
       const block = formatPlaybookBlock(pb);
       if (block) {
@@ -155,7 +281,7 @@ export async function buildContextMix({ question, boatId = null, namespace, topK
     meta.failures.push(`playbooks:${e.message}`);
   }
 
-  // 2) Boat knowledge (sprinkle)
+  // 2) Boat knowledge (sprinkle) — system_knowledge → context
   try {
     const boat = await fetchBoatKnowledge(boatId, 2);
     for (const b of boat) {
@@ -167,27 +293,39 @@ export async function buildContextMix({ question, boatId = null, namespace, topK
     meta.failures.push(`boat_sql:${e.message}`);
   }
 
-  // 3) Vectors (topical, capped)
+  // 3) Vectors (retrieve) — Pinecone default + world
+  let defaultMatches = [];
+  let worldMatches = [];
   try {
-    const { defaultMatches, worldMatches } = await vectorRetrieve(question, { topK, namespace, hints });
+    const res = await vectorRetrieve(question, { topK, namespace, hints });
+    defaultMatches = res.defaultMatches || [];
+    worldMatches = res.worldMatches || [];
     meta.vec_default_matches = defaultMatches.length;
     meta.vec_world_matches = worldMatches.length;
-
-    for (const m of defaultMatches.slice(0, 3)) {
-      parts.push(m.text);
-      refs.push({ id: m.id, source: m.source || 'default', score: m.score });
-    }
-    for (const m of worldMatches.slice(0, 1)) {
-      parts.push(m.text);
-      refs.push({ id: m.id, source: m.source || 'world', score: m.score });
-    }
   } catch (e) {
     meta.failures.push(`vector:${e.message}`);
   }
 
+  // 4) Re-rank & prune to kill bleed-through
+  const prunedDefault = reRankAndPrune(defaultMatches, { keep: 3, intent });
+  const prunedWorld = reRankAndPrune(worldMatches, { keep: 1, intent });
+  meta.pruned_default = prunedDefault.length;
+  meta.pruned_world = prunedWorld.length;
+
+  for (const m of prunedDefault) {
+    parts.push(m.text);
+    refs.push({ id: m.id, source: m.source || 'default', score: m.score });
+  }
+  for (const m of prunedWorld) {
+    parts.push(m.text);
+    refs.push({ id: m.id, source: m.source || 'world', score: m.score });
+  }
+
   // Dedup references, assemble & sanitize final
   const references = dedupById(refs);
-  const contextText = cleanChunk(parts.join('\n\n'));
+
+  // Cap overall context size to avoid long tail junk
+  const contextText = capContext(cleanChunk(parts.join('\n\n')), 6000);
 
   return { contextText, references, meta };
 }

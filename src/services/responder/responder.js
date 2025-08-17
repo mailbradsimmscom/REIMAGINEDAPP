@@ -1,122 +1,144 @@
 // src/services/responder/responder.js
-// Shapes the final structured answer while honoring tone presets.
-// Keeps the same outward contract your routes rely on.
+import * as ai from '../ai/aiService.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-import { selectTone } from './tonePresets.js';
-
-function joinRefs(refs = []) {
-  return refs
-    .filter(r => r && (r.source || r.id))
-    .map(r => ({ id: r.id || null, source: r.source || null, score: r.score }))
-    .slice(0, 8);
+function loadPersona() {
+  try {
+    const p = readFileSync(join(process.cwd(), 'docs', 'assistant_persona_REIMAGINEDSV.md'), 'utf8');
+    return String(p || '').trim();
+  } catch {
+    return 'You are a practical marine assistant. Be concise, specific, and procedural.';
+  }
 }
 
-// Primitive hazard detector to nudge a Safety block if context mentions risky ops.
-function detectSafety(context = '') {
-  const s = (context || '').toLowerCase();
-  const hits = [];
-  if (s.includes('pressure') || s.includes('depressur')) hits.push('Depressurize the system before opening any lines.');
-  if (s.includes('electrical') || s.includes('12v') || s.includes('240v') || s.includes('120v')) hits.push('Isolate electrical power before servicing.');
-  if (s.includes('chemical') || s.includes('acid') || s.includes('alkaline')) hits.push('Use gloves/eye protection for chemicals.');
-  if (s.includes('membrane')) hits.push('Avoid contamination of RO membranes; keep them sealed/wet as specified.');
-  return hits;
+function loadPolicy() {
+  // Response Style Policy — REIMAGINEDSV (short inline in case file missing)
+  return (
+`Apply this structure to every substantive answer:
+In a nutshell — 2–3 concise sentences with the gist and outcome.
+Tools & Materials — short bullets (omit if not relevant).
+Step-by-step — numbered actions; one idea per step.
+⚠️ Safety — clear cautions; short bullets.
+Specs & Notes — model-specific, numbers; short bullets.
+Dispose / Aftercare — cleanup/follow-up (if relevant).
+What’s next — quick tailoring/validation prompt.
+References — short list of sources used.
+
+Formatting:
+- Plain, active voice; short paragraphs.
+- Bullets for options; numbers for procedures.
+- Put confident, concrete recommendations before caveats.
+- If context is insufficient, ask for one clarifying detail (one sentence max).`
+  );
 }
 
-export function composeResponse({ question, contextText, references = [], tone }) {
-  const toneCfg = selectTone(tone);
+/** tiny sanitizer so UI doesn’t get PDF noise */
+function clean(s = '') {
+  return String(s)
+    .replace(/\b(\d{1,3})\s*\|\s*Pa\s*ge\b/gi, '')
+    .replace(/\bPage\s+\d+\b/gi, '')
+    .replace(/·/g, '•')
+    .replace(/-\s*\n\s*/g, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n(?!\n)/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
-  // Minimal extraction for common maintenance answers
-  const lines = (contextText || '').split('\n').map(l => l.trim()).filter(Boolean);
+/** builds a deterministic, policy-shaped fallback from raw context + refs */
+function synthesizeFromContext({ question, contextText, references }) {
+  const ctx = clean(contextText || '');
+  const snippet = ctx ? (ctx.length > 1800 ? `${ctx.slice(0, 1800)}…` : ctx) : '';
+
+  // try to segment into “bullets” heuristically
+  const lines = snippet.split(/\n+/).map(l => l.trim()).filter(Boolean);
   const bullets = [];
-  const tools = [];
-  const steps = [];
-
-  for (const line of lines) {
-    const L = line.toLowerCase();
-
-    // naive tools/materials detection
-    if (L.startsWith('- ') || L.startsWith('• ')) {
-      // if list looks like tools, bucket tentatively
-      if (L.includes('filter') || L.includes('wrench') || L.includes('cloth') || L.includes('lubric')) {
-        tools.push(line.replace(/^[-•]\s*/, ''));
-        continue;
-      }
-    }
-
-    // steps extraction
-    if (/^\d+\./.test(line)) {
-      steps.push(line);
-      continue;
-    }
-
-    // general bullets (maintenance intervals, etc.)
-    if (L.includes('every ') || L.includes('replace') || L.includes('clean') || L.includes('purge')) {
-      bullets.push(line);
-      continue;
-    }
+  for (const l of lines) {
+    if (/^\d+\./.test(l)) { bullets.push(l.replace(/^\d+\.\s*/, '')); continue; }
+    if (/^[-•]\s*/.test(l)) { bullets.push(l.replace(/^[-•]\s*/, '')); continue; }
+    if (/\b(helm|station|transfer|neutral|zf|vc[-\s]?20|can|nmea)\b/i.test(l)) bullets.push(l);
+    if (bullets.length >= 10) break;
   }
 
-  // Safety hints
-  const safety = detectSafety(contextText);
+  const refs = (Array.isArray(references) ? references : [])
+    .slice(0, 8)
+    .map(r => `• ${r.source || 'source'}${r.id ? ` — ${r.id}` : ''}`);
 
-  // Summary (first good lines or fallback)
-  const summary =
-    bullets[0] ||
-    steps[0]?.replace(/^\d+\.\s*/, '') ||
-    lines.slice(0, 1)[0] ||
-    'No specific procedures found in the provided context.';
+  const text =
+`**In a nutshell**
+Here’s a concise answer based on your documents and retrieved matches.
 
-  // Build “raw” text in your recognizable house style
-  const h = toneCfg.headings;
-  const pfx = toneCfg.style.bulletsPrefix;
+${bullets.length ? '**Step-by-step**\n' + bullets.map((b,i)=>`${i+1}. ${b}`).join('\n') : ''}
 
-  let rawParts = [];
+**What’s next**
+Want me to tailor this to your exact model (VC20/ZF variant, year, wiring layout)?
 
-  rawParts.push(`**${h.nutshell}**`);
-  rawParts.push(summary);
+${refs.length ? '**References**\n' + refs.join('\n') : ''}`.trim();
 
-  if (toneCfg.style.includeTools && tools.length) {
-    rawParts.push(`\n**${h.tools || 'Tools & Materials'}**`);
-    for (const t of tools.slice(0, 8)) rawParts.push(`${pfx}${t}`);
-  }
-
-  if (toneCfg.style.includeSteps && steps.length) {
-    rawParts.push(`\n**${h.steps || 'Step-by-step'}**`);
-    for (const s of steps.slice(0, 12)) rawParts.push(s.replace(/^\d+\.\s*/, (m) => m)); // keep numbering if present
-  } else if (bullets.length) {
-    rawParts.push(`\n**${h.steps || 'Steps'}**`);
-    for (const b of bullets.slice(0, 8)) rawParts.push(`${pfx}${b}`);
-  }
-
-  if (toneCfg.style.includeSafety && safety.length) {
-    rawParts.push(`\n**${h.safety || 'Safety'}**`);
-    for (const s of safety) rawParts.push(`${pfx}${s}`);
-  }
-
-  // Optionally add a “What’s next” CTA
-  rawParts.push(`\n**${h.next || 'What’s next'}**`);
-  rawParts.push('Want me to tailor this to your exact model and usage?');
-
-  // References footer (IDs/short sources only)
-  const refs = joinRefs(references);
-  if (refs.length) {
-    rawParts.push(`\n**${h.refs || 'References'}**`);
-    for (const r of refs) rawParts.push(`${pfx}${r.source || r.id}`);
-  }
-
-  const rawText = rawParts.join('\n');
-
-  // Top-level structured response (stable to your serializers)
   return {
     title: 'Answer',
-    summary,
-    bullets: bullets.slice(0, 5).map(b => b.replace(/^\d+\.\s*/, '')),
+    summary: bullets.slice(0,2).join(' ').slice(0, 200),
+    bullets: [],
     cta: null,
     raw: {
-      text: rawText,
-      references: refs
+      text,
+      references: (Array.isArray(references) ? references : []).slice(0, 8)
     }
   };
+}
+
+/**
+ * Compose a structured answer.
+ * - Tries model-generated answer with persona + policy.
+ * - If empty or error, falls back to synthesized answer from context.
+ */
+export async function composeResponse({ question, contextText, references = [], tone }) {
+  const persona = loadPersona();
+  const policy = loadPolicy();
+
+  // prefer ai.generateStructured if present, else generate, else complete
+  const gen =
+    ai.generateStructured ||
+    ai.generate ||
+    ai.complete ||
+    (ai.default && (ai.default.generateStructured || ai.default.generate || ai.default.complete));
+
+  // Build a single prompt that includes the policy as explicit instruction
+  const system = `${persona}\n\n${policy}`;
+  const user = `Question: ${question}\n\nContext:\n${contextText || ''}\n\nReturn: JSON with {title, summary, bullets?, cta?, raw:{text, references[]}}.`;
+
+  try {
+    if (typeof gen === 'function') {
+      const out = await gen({ system, user, references, tone });
+      const rawText = clean(out?.raw?.text || '');
+      if (rawText) {
+        // ensure we always deliver cleaned + references
+        return {
+          title: out.title || 'Answer',
+          summary: out.summary || '',
+          bullets: Array.isArray(out.bullets) ? out.bullets : [],
+          cta: out.cta ?? null,
+          raw: {
+            text: rawText,
+            references: Array.isArray(out?.raw?.references) ? out.raw.references.slice(0, 12) : references.slice(0, 12)
+          }
+        };
+      }
+    } else {
+      // surface the missing export clearly
+      console.warn('[responder] No AI generator function found on aiService. Falling back.');
+    }
+  } catch (e) {
+    // Make failures obvious during dev
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[responder] AI generation error:', e.message);
+    }
+  }
+
+  // Fallback: synthesize from context so the UI never gets an empty body
+  return synthesizeFromContext({ question, contextText, references });
 }
 
 export default { composeResponse };

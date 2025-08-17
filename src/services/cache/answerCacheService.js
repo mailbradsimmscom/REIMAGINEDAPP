@@ -1,7 +1,7 @@
 // src/services/cache/answerCacheService.js
 import supabase from '../../config/supabase.js';
 import { createHash } from 'node:crypto';
-import { embed } from '../ai/aiService.js';
+import { embedText } from '../ai/aiService.js';
 
 /**
  * Normalize the question so semantically equivalent strings hash the same.
@@ -137,7 +137,8 @@ export async function cacheStore({ question, boatId = null, structuredAnswer, re
           expires_at: expiresAt
         },
         {
-          onConflict: 'intent_key'
+          // MUST match the DB unique index (intent_key, boat_profile_id)
+          onConflict: 'intent_key,boat_profile_id'
         }
       );
 

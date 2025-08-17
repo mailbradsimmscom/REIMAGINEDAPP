@@ -1,63 +1,35 @@
 // src/services/ai/openaiAdapter.js
 import OpenAI from 'openai';
 
-function createClient() {
-  const apiKey = process.env.OPENAI_API_KEY;
-  return apiKey ? new OpenAI({ apiKey }) : null;
+function makeClient() {
+  const apiKey = process.env.OPENAI_API_KEY || '';
+  if (!apiKey) return null;
+  return new OpenAI({ apiKey });
 }
 
-/**
- * Create embeddings for text (or array of texts).
- * Returns a single vector for the first item (the mixer uses single text).
- */
-export async function embedText(
-  text,
-  { model = process.env.EMBEDDING_MODEL || 'text-embedding-3-large' } = {}
-) {
-  const client = createClient();
-  const input = Array.isArray(text) ? text : [text];
-
+export async function completeChat({ messages, model = 'gpt-4o-mini', temperature = 0.2 }) {
+  const client = makeClient();
   if (!client) {
-    // graceful mock to keep dev flow unblocked
-    return { vector: [], model, provider: 'openai', mock: true };
+    // Dev mock to keep flow unblocked
+    const userMsg = messages.find(m => m.role === 'user')?.content || '';
+    return { text: `MOCK: ${String(userMsg).slice(0, 200)}...` };
   }
-
-  const resp = await client.embeddings.create({ model, input });
-  const vec = resp?.data?.[0]?.embedding || [];
-  return { vector: vec, model, provider: 'openai', mock: false };
-}
-
-/**
- * Simple chat completion wrapper.
- */
-export async function chatComplete({
-  system,
-  user,
-  temperature = 0.3,
-  model = process.env.OPENAI_MODEL || 'gpt-4o-mini',
-}) {
-  const client = createClient();
-  if (!client) {
-    return {
-      text: `MOCK: ${String(user || '').slice(0, 120)}...`,
-      model,
-      provider: 'openai',
-      mock: true,
-    };
-  }
-
-  const messages = [];
-  if (system) messages.push({ role: 'system', content: system });
-  messages.push({ role: 'user', content: user || '' });
-
   const resp = await client.chat.completions.create({
     model,
-    messages,
     temperature,
+    messages
   });
-
-  const text = resp?.choices?.[0]?.message?.content || '';
-  return { text, model, provider: 'openai', mock: false };
+  const text = resp.choices?.[0]?.message?.content?.trim() || '';
+  return { text };
 }
 
-export default { embedText, chatComplete };
+export async function embedOne(text, { model = 'text-embedding-3-large' } = {}) {
+  const client = makeClient();
+  if (!client) {
+    // Return tiny fake vector so pipelines don't crash in dev
+    return { vector: Array(16).fill(0.001) };
+  }
+  const r = await client.embeddings.create({ model, input: text });
+  const vector = r.data?.[0]?.embedding || [];
+  return { vector };
+}
