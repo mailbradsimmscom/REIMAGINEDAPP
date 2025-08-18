@@ -1,7 +1,6 @@
-import { getClient } from "./supabaseService.js";
+import supabase from "../config/supabase.js";
 
 export async function getCachedAnswer(intentKey, boatProfileId) {
-  const supabase = getClient();
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("answers_cache")
@@ -14,7 +13,6 @@ export async function getCachedAnswer(intentKey, boatProfileId) {
 }
 
 export async function insertCachedAnswer(entry) {
-  const supabase = getClient();
   if (!supabase) return { ok: false };
   const { error } = await supabase.from("answers_cache").insert([entry]);
   if (error) return { ok: false, error: error.message };
