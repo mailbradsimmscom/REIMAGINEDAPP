@@ -178,3 +178,7 @@ dist
 # Env
 .env
 .env.*
+
+# Env
+.env
+.env.*
