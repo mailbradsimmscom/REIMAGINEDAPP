@@ -5,7 +5,7 @@ import * as ai from '../ai/aiService.js';
 import {
   searchPlaybooks,
   formatPlaybookBlock,
-  derivePlaybookKeywords
+  deriveHelmKeywords
 } from '../sql/playbookService.js';
 import retrievalConfig from './retrievalConfig.json' with { type: 'json' };
 import intentConfig from './intentConfig.json' with { type: 'json' };
@@ -66,18 +66,14 @@ function escapeRegex(str) {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function reRankAndPrune(matches, { keep = 4, question }) {
+function reRankAndPrune(matches, { keep = 4, hints = [] }) {
   if (!Array.isArray(matches) || !matches.length) return [];
 
-  const hints = derivePlaybookKeywords(question);
-
-  // score, drop negatives, sort, and take top-K
   const scored = matches
-    .map(m => ({
+    .map((m) => ({
       ...m,
       _scoreLocal: scoreChunkByHints(m.text || '', hints)
     }))
-    .filter(m => m._scoreLocal > 0)
     .sort((a, b) => {
       // prefer higher pinecone score, then local topical score
       const pv = (b.score || 0) - (a.score || 0);
@@ -196,7 +192,10 @@ async function vectorRetrieve(question, { topK = 8, namespace, hints }) {
   }
 
   // light topical filter before deeper pruning
-  const topical = out.defaultMatches.filter(m => onTopic(hints, m.text));
+  let topical = out.defaultMatches;
+  if (Array.isArray(hints) && hints.length) {
+    topical = out.defaultMatches.filter((m) => onTopic(hints, m.text));
+  }
   topical.sort((a, b) => (b.score || 0) - (a.score || 0));
 
   out.defaultMatches = topical.slice(0, 8); // keep some for re-ranker
@@ -226,12 +225,13 @@ export async function buildContextMix({
     failures: []
   };
 
-  const hints = derivePlaybookKeywords(question);
+  const hints = intent === 'helm-transfer' ? deriveHelmKeywords(question) : [];
   const parts = [];
   const refs = [];
 
   const steps = {
     async playbookSearch() {
+      if (!hints.length) return;
       try {
         const pbs = await searchPlaybooks(question, { limit: 3 });
         meta.sql_rows += pbs.length;
@@ -279,8 +279,8 @@ export async function buildContextMix({
         meta.failures.push(`vector:${e.message}`);
       }
 
-      const prunedDefault = reRankAndPrune(defaultMatches, { keep: 3, question });
-      const prunedWorld = reRankAndPrune(worldMatches, { keep: 1, question });
+      const prunedDefault = reRankAndPrune(defaultMatches, { keep: 3, hints });
+      const prunedWorld = reRankAndPrune(worldMatches, { keep: 1, hints });
       meta.pruned_default = prunedDefault.length;
       meta.pruned_world = prunedWorld.length;
 

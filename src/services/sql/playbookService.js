@@ -15,26 +15,34 @@ function clean(s = '') {
  * Derive robust keyword set for helm transfer / VC20 / ZF-like queries.
  * (No brand hard-coding beyond widely used tokens.)
  */
-export function derivePlaybookKeywords(question) {
+export function deriveHelmKeywords(question) {
   const q = String(question || '').toLowerCase();
 
-  const base = [
-    'helm', 'station', 'transfer', 'select',
-    'control', 'take', 'active', 'upper', 'lower'
-  ];
+  const core = [];
+  if (/\bhelm\b/.test(q)) core.push('helm');
+  if (/\bstation\b/.test(q)) core.push('station');
+  if (/\btransfer\b/.test(q)) core.push('transfer');
+  if (/\bselect\b/.test(q)) core.push('select');
+  if (/\bcontrol\b/.test(q)) core.push('control');
+  if (/\btake\b/.test(q)) core.push('take');
+  if (/\bactive\b/.test(q)) core.push('active');
+  if (/\bupper\b/.test(q)) core.push('upper');
+  if (/\blower\b/.test(q)) core.push('lower');
 
-  // common brand/system tokens users actually type
+  if (core.length === 0) return [];
+
   const brandish = [];
   if (/\bvc[-\s]?20\b/.test(q)) brandish.push('vc20', 'vc-20', 'vc 20');
   if (/\bzf\b/.test(q)) brandish.push('zf');
   if (/\bnmea\s*2000\b|\bn2k\b|\bcan\b/.test(q)) brandish.push('n2k', 'nmea 2000', 'can');
 
-  // phrasal hints
   const phrases = [];
-  if (/won'?t|cannot|can'?t|will not/i.test(q)) phrases.push('won’t transfer', 'will not transfer', 'won’t take control');
+  if (/won'?t|cannot|can'?t|will not/i.test(q))
+    phrases.push('won’t transfer', 'will not transfer', 'won’t take control');
 
-  const uniq = (arr) => Array.from(new Set(arr.filter(Boolean).map(s => s.toLowerCase())));
-  return uniq([...base, ...brandish, ...phrases]);
+  const uniq = (arr) =>
+    Array.from(new Set(arr.filter(Boolean).map((s) => s.toLowerCase())));
+  return uniq([...core, ...brandish, ...phrases]);
 }
 
 /**
@@ -76,7 +84,7 @@ function scorePlaybook(pb, keywords) {
 export async function searchPlaybooks(question, { limit = 4 } = {}) {
   if (!supabase) return [];
 
-  const keywords = derivePlaybookKeywords(question);
+  const keywords = deriveHelmKeywords(question);
   if (!keywords.length) return [];
 
   // Try multiple case variants for text[] contains
