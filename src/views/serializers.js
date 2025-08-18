@@ -1,24 +1,18 @@
 // src/views/serializers.js
-// Serializers for different clients (web BFF vs verbose API)
 
+// Keep the web response minimal: just raw model text.
+// (No title, summary, bullets, CTA injected by the UI layer.)
 export function webSerializer(structured) {
-  // For web, keep it tight and display-focused
-  const { title, summary, bullets, cta } = structured || {};
   return {
-    title: title || 'Answer',
-    summary: summary || null,
-    bullets: Array.isArray(bullets) ? bullets : [],
-    cta: cta || null,
+    raw: structured?.raw || { text: '' },
   };
 }
 
+// API response includes raw text and references (useful for debugging),
+ // but still no UI scaffolding fields added.
 export function apiSerializer(structured) {
-  // Verbose form: include raw and references
-  return structured || {
-    title: null,
-    summary: null,
-    bullets: [],
-    cta: null,
-    raw: { text: '', references: [] },
-  };
+  const raw = structured?.raw || { text: '', references: [] };
+  return { raw };
 }
+
+export default { webSerializer, apiSerializer };
