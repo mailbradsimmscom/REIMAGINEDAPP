@@ -11,7 +11,7 @@ function safeRead(p) {
 }
 
 const PERSONA_PATH = path.join(ROOT, 'docs', 'assistant_persona_REIMAGINEDSV.md');
-const STYLE_PATH   = path.join(ROOT, 'docs', 'response_style_policy.md');
+const STYLE_PATH   = path.join(ROOT, 'docs', 'response_style_policy_REIMAGINEDSV.md');
 
 const PERSONA_MD = safeRead(PERSONA_PATH);
 const STYLE_MD   = safeRead(STYLE_PATH);
