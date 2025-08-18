@@ -1,6 +1,6 @@
 // src/services/vector/vectorService.js
 import { embedOne } from '../ai/openaiAdapter.js';
-import { pineconeAdapter, PineconeNamespaces } from './pineconeAdapter.js';
+import { pcQuery, PineconeNamespaces } from './pineconeAdapter.js';
 
 /**
  * Given a natural language question, embed + vector query Pinecone.
@@ -20,7 +20,7 @@ export async function retrieveContext(question, {
     return { contextText: '', references: [] };
   }
 
-  const matches = await pineconeAdapter.query({ vector, topK, namespace: ns });
+  const matches = await pcQuery({ vector, topK, namespace: ns });
   const contextText = matches.map(m => m.text).join('\n');
   const references = matches.map(m => ({
     id: m.id,
