@@ -9,6 +9,25 @@ import {
 } from '../sql/playbookService.js';
 import retrievalConfig from './retrievalConfig.json' with { type: 'json' };
 
+/* ---------- Question intent classifier ---------- */
+export function classifyQuestion(question = '') {
+  const q = String(question).toLowerCase();
+
+  if (/helm/.test(q) && /(transfer|take\s*over|hand\s*off)/.test(q)) {
+    return 'helm-transfer';
+  }
+
+  if (
+    q.includes('watermaker') ||
+    q.includes('water maker') ||
+    /reverse\s+osmosis/.test(q)
+  ) {
+    return 'watermaker';
+  }
+
+  return 'generic';
+}
+
 /* ---------- Sanitizer (kills PDF/OCR noise) ---------- */
 function cleanChunk(t = '') {
   return String(t)
@@ -187,7 +206,7 @@ export async function buildContextMix({
   namespace,
   topK = 8,
   requestId,
-  intent = 'default'
+  intent = 'generic'
 }) {
   const meta = {
     requestId,
@@ -285,4 +304,4 @@ export async function buildContextMix({
   return { contextText, references, meta };
 }
 
-export default { buildContextMix };
+export default { buildContextMix, classifyQuestion };
