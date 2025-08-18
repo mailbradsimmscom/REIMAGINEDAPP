@@ -1,8 +1,8 @@
-const { z } = require('zod');
-const { aiService } = require('../services/ai/aiService');
-const { vectorService } = require('../services/vector/vectorService');
-const { responder } = require('../services/responder/responder');
-const { serialize } = require('../views/serializers');
+import { z } from 'zod';
+import aiService from '../services/ai/aiService.js';
+import * as vectorService from '../services/vector/vectorService.js';
+import responder from '../services/responder/responder.js';
+import { serialize } from '../views/serializers.js';
 
 const bodySchema = z.object({
   question: z.string().min(1),
@@ -36,4 +36,4 @@ const handleQuery = handleQueryFactory('api');
 const handleQueryWeb = handleQueryFactory('web');
 const handleQueryIos = handleQueryFactory('ios');
 
-module.exports = { handleQuery, handleQueryWeb, handleQueryIos, handleQueryFactory };
+export { handleQuery, handleQueryWeb, handleQueryIos, handleQueryFactory };
