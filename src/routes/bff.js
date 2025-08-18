@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { composeResponse } from '../services/responder/responder.js';
 import { webSerializer, apiSerializer } from '../views/serializers.js';
-import { buildContextMix } from '../services/retrieval/mixerService.js';
+import { buildContextMix, classifyQuestion } from '../services/retrieval/mixerService.js';
 import { cacheLookup, cacheStore } from '../services/cache/answerCacheService.js';
 import { persistConversation } from '../services/sql/persistenceService.js';
 
@@ -10,8 +10,16 @@ const router = Router();
 
 async function handleQuery(req, res, { client = 'web' } = {}) {
   try {
-    const { question, tone, boat_id, namespace, topK, context, references, intent } =
-      req.body || {};
+    const {
+      question,
+      tone,
+      boat_id,
+      namespace,
+      topK,
+      context,
+      references,
+      intent: clientIntent
+    } = req.body || {};
     const requestId = req.id;
 
     if (!question || !String(question).trim()) {
@@ -42,6 +50,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
         fromCache = true;
       } else {
         // 2) Retrieval: SQL-first (playbooks + boat knowledge), then vector
+        const intent = clientIntent || classifyQuestion(question);
         const mix = await buildContextMix({
           question,
           boatId: boat_id || null,
