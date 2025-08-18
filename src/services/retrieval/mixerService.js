@@ -22,80 +22,16 @@ function cleanChunk(t = '') {
     .trim();
 }
 
-/* ---------- Intent hints & stoplists ---------- */
-function detectIntent(question) {
-  const q = String(question || '').toLowerCase();
-  const helmish = /\b(helm|station|transfer|take\s*control|upper|lower|vc[-\s]?20|zf)\b/;
-  if (helmish.test(q)) return 'helm-transfer';
-  return 'generic';
-}
-
-function stoplistForIntent(intent) {
-  // Terms that commonly bleed in from general manuals and are irrelevant for helm transfer.
-  const common = [
-    /\bbattery|batteries\b/i,
-    /\bbow\s*thruster\b/i,
-    /\bweekly\s*checks?\b/i,
-    /\blife\s*jackets?\b/i,
-    /\bwinch(es)?\b/i,
-    /\bpolish\b/i,
-    /\bclean(?:ing)?\b/i,
-    /\bwash\s*down\b/i,
-    /\bventilation systems?\b/i,
-    /\b(stainless|lifelines|stanchions)\b/i,
-    /\banchor\b/i,
-    /\bdeck\s+gear\b/i,
-    /\bwatermaker\b/i,
-    /\baircon\b/i,
-    /\bgenerator\b/i,
-    /\bshower\b/i,
-  ];
-
-  if (intent === 'helm-transfer') {
-    return [
-      ...common,
-      /\b(toilets?|heads?)\b/i,
-      /\bbilge(s)?\b/i,
-      /\bweekly\s+maintenance\b/i,
-      /\bpropeller\b/i,
-      /\bfeather\b/i,
-      /\bsail\s*drive\b/i,
-      /\bcharge(?:r|s|ing)?\b/i,
-    ];
-  }
-  return common;
-}
-
-function positiveHintsForIntent(intent) {
-  if (intent === 'helm-transfer') {
-    return [
-      'helm', 'station', 'transfer', 'select', 'control',
-      'upper', 'lower', 'vc20', 'vc-20', 'zf', 'active station',
-      'neutral', 'inhibit', 'take control', 'led', 'n2k', 'nmea', 'can'
-    ];
-  }
-  return [];
-}
-
 /* ---------- Scoring / re-ranking ---------- */
-function scoreChunkByHints(text, hints = [], penalties = []) {
+function scoreChunkByHints(text, hints = []) {
   const s = String(text || '').toLowerCase();
   let score = 0;
 
-  // reward: hint overlap
   for (const h of hints) {
     if (!h) continue;
     const re = new RegExp(`\\b${escapeRegex(h)}\\b`, 'i');
-    if (re.test(s)) score += 2; // hints are meaningful
+    if (re.test(s)) score += 2;
   }
-
-  // penalty: stoplist matches
-  for (const p of penalties) {
-    if (p.test(s)) score -= 3;
-  }
-
-  // small reward for strongly topical words even if not in hints
-  if (/\b(helm|station|transfer|vc[-\s]?20|zf)\b/i.test(s)) score += 2;
 
   return score;
 }
@@ -104,19 +40,18 @@ function escapeRegex(str) {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function reRankAndPrune(matches, { keep = 4, intent }) {
+function reRankAndPrune(matches, { keep = 4, question }) {
   if (!Array.isArray(matches) || !matches.length) return [];
 
-  const penalties = stoplistForIntent(intent);
-  const hints = positiveHintsForIntent(intent);
+  const hints = derivePlaybookKeywords(question);
 
   // score, drop negatives, sort, and take top-K
   const scored = matches
     .map(m => ({
       ...m,
-      _scoreLocal: scoreChunkByHints(m.text || '', hints, penalties)
+      _scoreLocal: scoreChunkByHints(m.text || '', hints)
     }))
-    .filter(m => m._scoreLocal > 0) // cut obvious off-topic chunks
+    .filter(m => m._scoreLocal > 0)
     .sort((a, b) => {
       // prefer higher pinecone score, then local topical score
       const pv = (b.score || 0) - (a.score || 0);
@@ -258,7 +193,6 @@ export async function buildContextMix({ question, boatId = null, namespace, topK
     failures: []
   };
 
-  const intent = detectIntent(question);
   const hints = derivePlaybookKeywords(question);
   const parts = [];
   const refs = [];
@@ -307,8 +241,8 @@ export async function buildContextMix({ question, boatId = null, namespace, topK
   }
 
   // 4) Re-rank & prune to kill bleed-through
-  const prunedDefault = reRankAndPrune(defaultMatches, { keep: 3, intent });
-  const prunedWorld = reRankAndPrune(worldMatches, { keep: 1, intent });
+  const prunedDefault = reRankAndPrune(defaultMatches, { keep: 3, question });
+  const prunedWorld = reRankAndPrune(worldMatches, { keep: 1, question });
   meta.pruned_default = prunedDefault.length;
   meta.pruned_world = prunedWorld.length;
 
