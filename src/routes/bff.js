@@ -10,7 +10,8 @@ const router = Router();
 
 async function handleQuery(req, res, { client = 'web' } = {}) {
   try {
-    const { question, tone, boat_id, namespace, topK, context, references } = req.body || {};
+    const { question, tone, boat_id, namespace, topK, context, references, intent } =
+      req.body || {};
     const requestId = req.id;
 
     if (!question || !String(question).trim()) {
@@ -46,7 +47,8 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
           boatId: boat_id || null,
           namespace,
           topK,
-          requestId
+          requestId,
+          intent
         });
         contextText = mix.contextText || '';
         refs = Array.isArray(mix.references) ? mix.references : [];

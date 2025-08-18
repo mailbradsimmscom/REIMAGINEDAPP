@@ -7,6 +7,7 @@ import {
   formatPlaybookBlock,
   derivePlaybookKeywords
 } from '../sql/playbookService.js';
+import retrievalConfig from './retrievalConfig.json' with { type: 'json' };
 
 /* ---------- Sanitizer (kills PDF/OCR noise) ---------- */
 function cleanChunk(t = '') {
@@ -180,7 +181,14 @@ async function vectorRetrieve(question, { topK = 8, namespace, hints }) {
 }
 
 /* ---------- Main: SQL-first (playbooks → boat) then vector + re-rank ---------- */
-export async function buildContextMix({ question, boatId = null, namespace, topK = 8, requestId }) {
+export async function buildContextMix({
+  question,
+  boatId = null,
+  namespace,
+  topK = 8,
+  requestId,
+  intent = 'default'
+}) {
   const meta = {
     requestId,
     playbook_hit: false,
@@ -197,70 +205,83 @@ export async function buildContextMix({ question, boatId = null, namespace, topK
   const parts = [];
   const refs = [];
 
-  // 1) Playbooks (hard priority) — standards_playbooks → context
-  try {
-    const pbs = await searchPlaybooks(question, { limit: 3 });
-    meta.sql_rows += pbs.length;
+  const steps = {
+    async playbookSearch() {
+      try {
+        const pbs = await searchPlaybooks(question, { limit: 3 });
+        meta.sql_rows += pbs.length;
+        for (const pb of pbs.slice(0, 2)) {
+          const block = formatPlaybookBlock(pb);
+          if (block) {
+            parts.push(block);
+            refs.push({
+              id: pb.id,
+              source: 'standards_playbooks',
+              score: Math.min(0.95, (pb.score || 1) / 10 + 0.85)
+            });
+            meta.sql_selected += 1;
+          }
+        }
+        if (meta.sql_selected > 0) meta.playbook_hit = true;
+      } catch (e) {
+        meta.failures.push(`playbooks:${e.message}`);
+      }
+    },
 
-    for (const pb of pbs.slice(0, 2)) {
-      const block = formatPlaybookBlock(pb);
-      if (block) {
-        parts.push(block);
-        refs.push({ id: pb.id, source: 'standards_playbooks', score: Math.min(0.95, (pb.score || 1) / 10 + 0.85) });
-        meta.sql_selected += 1;
+    async boatKnowledge() {
+      try {
+        const boat = await fetchBoatKnowledge(boatId, 2);
+        for (const b of boat) {
+          parts.push(b.text);
+          refs.push({ id: b.id, source: 'system_knowledge', score: b.score });
+          meta.sql_selected += 1;
+        }
+      } catch (e) {
+        meta.failures.push(`boat_sql:${e.message}`);
+      }
+    },
+
+    async vectorSearch() {
+      let defaultMatches = [];
+      let worldMatches = [];
+      try {
+        const res = await vectorRetrieve(question, { topK, namespace, hints });
+        defaultMatches = res.defaultMatches || [];
+        worldMatches = res.worldMatches || [];
+        meta.vec_default_matches = defaultMatches.length;
+        meta.vec_world_matches = worldMatches.length;
+      } catch (e) {
+        meta.failures.push(`vector:${e.message}`);
+      }
+
+      const prunedDefault = reRankAndPrune(defaultMatches, { keep: 3, question });
+      const prunedWorld = reRankAndPrune(worldMatches, { keep: 1, question });
+      meta.pruned_default = prunedDefault.length;
+      meta.pruned_world = prunedWorld.length;
+
+      for (const m of prunedDefault) {
+        parts.push(m.text);
+        refs.push({ id: m.id, source: m.source || 'default', score: m.score });
+      }
+      for (const m of prunedWorld) {
+        parts.push(m.text);
+        refs.push({ id: m.id, source: m.source || 'world', score: m.score });
       }
     }
-    if (meta.sql_selected > 0) meta.playbook_hit = true;
-  } catch (e) {
-    meta.failures.push(`playbooks:${e.message}`);
-  }
+  };
 
-  // 2) Boat knowledge (sprinkle) — system_knowledge → context
-  try {
-    const boat = await fetchBoatKnowledge(boatId, 2);
-    for (const b of boat) {
-      parts.push(b.text);
-      refs.push({ id: b.id, source: 'system_knowledge', score: b.score });
-      meta.sql_selected += 1;
+  const plan =
+    retrievalConfig[intent] || retrievalConfig.default || Object.keys(steps);
+
+  for (const step of plan) {
+    const fn = steps[step];
+    if (typeof fn === 'function') {
+      await fn();
     }
-  } catch (e) {
-    meta.failures.push(`boat_sql:${e.message}`);
   }
 
-  // 3) Vectors (retrieve) — Pinecone default + world
-  let defaultMatches = [];
-  let worldMatches = [];
-  try {
-    const res = await vectorRetrieve(question, { topK, namespace, hints });
-    defaultMatches = res.defaultMatches || [];
-    worldMatches = res.worldMatches || [];
-    meta.vec_default_matches = defaultMatches.length;
-    meta.vec_world_matches = worldMatches.length;
-  } catch (e) {
-    meta.failures.push(`vector:${e.message}`);
-  }
-
-  // 4) Re-rank & prune to kill bleed-through
-  const prunedDefault = reRankAndPrune(defaultMatches, { keep: 3, question });
-  const prunedWorld = reRankAndPrune(worldMatches, { keep: 1, question });
-  meta.pruned_default = prunedDefault.length;
-  meta.pruned_world = prunedWorld.length;
-
-  for (const m of prunedDefault) {
-    parts.push(m.text);
-    refs.push({ id: m.id, source: m.source || 'default', score: m.score });
-  }
-  for (const m of prunedWorld) {
-    parts.push(m.text);
-    refs.push({ id: m.id, source: m.source || 'world', score: m.score });
-  }
-
-  // Dedup references, assemble & sanitize final
   const references = dedupById(refs);
-
-  // Cap overall context size to avoid long tail junk
   const contextText = capContext(cleanChunk(parts.join('\n\n')), 6000);
-
   return { contextText, references, meta };
 }
 
