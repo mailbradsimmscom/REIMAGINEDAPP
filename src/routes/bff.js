@@ -50,7 +50,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
         fromCache = true;
       } else {
         // 2) Retrieval: SQL-first (playbooks + boat knowledge), then vector
-        const intent = clientIntent || classifyQuestion(question);
+        const intent = clientIntent || await classifyQuestion(question);
         const mix = await buildContextMix({
           question,
           boatId: boat_id || null,

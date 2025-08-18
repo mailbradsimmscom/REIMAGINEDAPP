@@ -8,21 +8,27 @@ import {
   derivePlaybookKeywords
 } from '../sql/playbookService.js';
 import retrievalConfig from './retrievalConfig.json' with { type: 'json' };
+import intentConfig from './intentConfig.json' with { type: 'json' };
 
 /* ---------- Question intent classifier ---------- */
-export function classifyQuestion(question = '') {
+export async function classifyQuestion(question = '') {
   const q = String(question).toLowerCase();
 
-  if (/helm/.test(q) && /(transfer|take\s*over|hand\s*off)/.test(q)) {
-    return 'helm-transfer';
+  const rules = intentConfig?.intents || intentConfig || {};
+  for (const [intent, rule] of Object.entries(rules)) {
+    const { all = [], any = [] } = rule || {};
+    const allMatch = all.every(p => new RegExp(p, 'i').test(q));
+    const anyMatch = any.length === 0 || any.some(p => new RegExp(p, 'i').test(q));
+    if (allMatch && anyMatch) return intent;
   }
 
-  if (
-    q.includes('watermaker') ||
-    q.includes('water maker') ||
-    /reverse\s+osmosis/.test(q)
-  ) {
-    return 'watermaker';
+  if (typeof ai.classifyIntent === 'function') {
+    try {
+      const aiIntent = await ai.classifyIntent(question);
+      if (aiIntent) return aiIntent;
+    } catch {
+      /* ignore AI failures */
+    }
   }
 
   return 'generic';
