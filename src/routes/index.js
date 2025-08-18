@@ -8,7 +8,7 @@ import * as legacyMod from './legacy.js';
 import * as bffMod from './bff.js';
 import * as qaMod from './qa.js';
 import * as adminMod from './admin.js';
-
+import apiRouter from './api.js';
 function asRouter(mod, label) {
   const candidate = mod?.default ?? mod?.router ?? mod;
   if (typeof candidate !== 'function') {

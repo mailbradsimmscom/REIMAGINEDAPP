@@ -1,26 +1,26 @@
 {
-  "name": "reimaginedsv-api",
+  "name": "reimaginedapp",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
-  "description": "Modular monolith API with hexagonal seams, responder, and BFF",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js",
-    "test:smoke": "node scripts/smoke.js"
+    "dev": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
-    "express": "^4.19.2",
+    "@pinecone-database/pinecone": "^2.2.2",
+    "@supabase/supabase-js": "^2.55.0",
     "cors": "^2.8.5",
-    "morgan": "^1.10.0",
-    "uuid": "^9.0.1",
-    "openai": "^4.55.0",
-    "@pinecone-database/pinecone": "^4.0.0",
-    "@supabase/supabase-js": "^2.45.4",
-    "dotenv": "^16.4.5",
-    "zod": "^3.23.8"
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "morgan": "^1.10.1",
+    "openai": "^4.104.0",
+    "pino": "^9.9.0",
+    "zod": "^3.25.76"
   },
-  "devDependencies": {
-    "nodemon": "^3.1.4"
-  }
+  "license": "UNLICENSED"
 }
