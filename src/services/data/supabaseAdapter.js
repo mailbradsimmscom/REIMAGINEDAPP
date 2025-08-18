@@ -1,4 +1,4 @@
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
 
 function createSb() {
   const url = process.env.SUPABASE_URL || '';
@@ -150,12 +150,12 @@ async function adminSummary() {
   }
 }
 
-module.exports = {
-  supabaseAdapter: {
-    health,
-    listDocuments,
-    listTopics,
-    saveFeedback,
-    adminSummary
-  }
+export const supabaseAdapter = {
+  health,
+  listDocuments,
+  listTopics,
+  saveFeedback,
+  adminSummary
 };
+
+export default { supabaseAdapter };

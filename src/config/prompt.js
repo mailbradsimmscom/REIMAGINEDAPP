@@ -3,9 +3,11 @@
 // Reads persona/style from REIMAGINEDSV/docs/*.md and combines them
 // with a small global formatting policy so every answer is consistent.
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCS_DIR = path.resolve(__dirname, '..', '..', 'docs');
 const PERSONA_FILE = path.join(DOCS_DIR, 'assistant_persona_REIMAGINEDSV.md');
 const STYLE_FILE = path.join(DOCS_DIR, 'response_style_policy_REIMAGINEDSV.md');
@@ -45,7 +47,7 @@ function readFileOrFallback(p, fb) {
   try { return fs.readFileSync(p, 'utf8'); } catch { return fb; }
 }
 
-function buildSystemPrompt() {
+export function buildSystemPrompt() {
   if (cached) return cached;
   const persona = readFileOrFallback(PERSONA_FILE, FALLBACK_PERSONA);
   const style = readFileOrFallback(STYLE_FILE, FALLBACK_STYLE);
@@ -61,4 +63,4 @@ function buildSystemPrompt() {
   return cached;
 }
 
-module.exports = { buildSystemPrompt, DOCS_DIR, PERSONA_FILE, STYLE_FILE };
+export { DOCS_DIR, PERSONA_FILE, STYLE_FILE };

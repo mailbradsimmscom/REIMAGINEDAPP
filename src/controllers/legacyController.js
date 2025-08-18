@@ -1,5 +1,5 @@
-const { Pinecone } = require('@pinecone-database/pinecone');
-const { dataService } = require('../services/data/dataService');
+import { Pinecone } from '@pinecone-database/pinecone';
+import { dataService } from '../services/data/dataService.js';
 
 function pineconeIndex() {
   const apiKey = process.env.PINECONE_API_KEY;
@@ -81,7 +81,7 @@ async function postFeedback(req, res) {
   res.status(out.ok ? 200 : 500).json(out);
 }
 
-module.exports = {
+export {
   getAdminHome,
   getPineconeStatus,
   getWorldSettings,
