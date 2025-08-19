@@ -53,7 +53,7 @@ test('worldSearch fetches allowed domain when parts below threshold', async () =
   let fetchCalledWith = null;
   const deps = makeDeps(1, async url => {
     fetchCalledWith = url;
-    return ['world data'];
+    return [{ text: 'world data', metadata: { url, source: 'oem' } }];
   });
   const { buildContextMix } = await import('./mixerService.js');
   const res = await buildContextMix({ question: 'foo question', namespace: 'x' }, deps);
@@ -69,7 +69,10 @@ test('worldSearch skipped when parts exceed threshold', async () => {
   process.env.WORLD_SEARCH_PARTS_THRESHOLD = '3';
 
   let called = false;
-  const deps = makeDeps(3, async () => { called = true; return ['world data']; });
+  const deps = makeDeps(3, async () => {
+    called = true;
+    return [{ text: 'world data', metadata: { url: 'x', source: 'oem' } }];
+  });
   const { buildContextMix } = await import('./mixerService.js');
   const res = await buildContextMix({ question: 'foo question', namespace: 'x' }, deps);
 
@@ -83,7 +86,10 @@ test('worldSearch can be disabled via env toggle', async () => {
   process.env.WORLD_SEARCH_PARTS_THRESHOLD = '3';
 
   let called = false;
-  const deps = makeDeps(1, async () => { called = true; return ['world data']; });
+  const deps = makeDeps(1, async () => {
+    called = true;
+    return [{ text: 'world data', metadata: { url: 'x', source: 'oem' } }];
+  });
   const { buildContextMix } = await import('./mixerService.js');
   const res = await buildContextMix({ question: 'foo question', namespace: 'x' }, deps);
 
