@@ -7,6 +7,7 @@ import { cacheLookup } from '../services/cache/answerCacheService.js';
 import { persistConversation } from '../services/sql/persistenceService.js';
 import { ENV } from '../config/env.js';
 import { setTrace } from '../services/debug/traceStore.js';
+import { log } from '../utils/log.js';
 
 const router = Router();
 
@@ -19,9 +20,11 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
       topK,
       context,
       references,
-      intent: clientIntent
+      intent: clientIntent,
+      debug: debugFlag
     } = req.body || {};
     const requestId = req.id;
+    const debug = Boolean(debugFlag || req.query?.debug);
 
     if (!question || !String(question).trim()) {
       return res.status(400).json({ ok: false, error: 'Missing question' });
@@ -32,6 +35,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
     let fromCache = false;
     let structured;
     let retrievalMeta = null;
+    const retrieval = { assets: 0, playbooks: 0, web: 0, used_cache: false };
 
     // If explicit context is provided, skip cache & retrieval
     if (typeof context === 'string' || Array.isArray(context)) {
@@ -49,6 +53,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
       if (hit.hit && hit.payload?.raw?.text) {
         structured = hit.payload;
         fromCache = true;
+        retrieval.used_cache = true;
       } else {
         // 2) Retrieval: SQL-first (playbooks + boat knowledge), then vector
         const intent = clientIntent || await classifyQuestion(question);
@@ -62,7 +67,9 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
         contextText = mix.contextText || '';
         refs = Array.isArray(mix.references) ? mix.references : [];
         retrievalMeta = mix.meta || null;
-
+        retrieval.assets = Array.isArray(mix.assets) ? mix.assets.length : 0;
+        retrieval.playbooks = Array.isArray(mix.playbooks) ? mix.playbooks.length : 0;
+        retrieval.web = Array.isArray(mix.webSnippets) ? mix.webSnippets.length : 0;
         structured = await composeResponse({
           question,
           contextText,
@@ -74,6 +81,8 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
         });
       }
     }
+
+    log.info({ requestId, ...retrieval }, 'retrieval');
 
     // 3) Serialize for client
     let payload = client === 'api'
@@ -87,6 +96,10 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
     if (retrievalMeta && ENV.RETRIEVAL_TELEMETRY_ENABLED) {
       setTrace(requestId, { question, meta: retrievalMeta });
       payload._retrievalMeta = retrievalMeta;
+    }
+
+    if (debug) {
+      payload._retrieval = retrieval;
     }
 
     if (fromCache) {
