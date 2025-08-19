@@ -101,14 +101,14 @@ function capContext(text, maxChars = 6000) {
 }
 
 /* ---------- Vector (Pinecone) ---------- */
-async function vectorRetrieve(question, { topK = 8, namespace, hints }) {
+async function vectorRetrieve(question, { topK = 8, namespace, hints, aiService = ai, pineconeAdapter = pinecone }) {
   const out = { defaultMatches: [], worldMatches: [] };
   const embedFn =
-    ai.embed ||
-    (ai.aiService && ai.aiService.embed) ||
-    (typeof ai.default === 'object' && ai.default.embed) ||
+    aiService.embed ||
+    (aiService.aiService && aiService.aiService.embed) ||
+    (typeof aiService.default === 'object' && aiService.default.embed) ||
     null;
-  if (!embedFn || !pinecone) return out;
+  if (!embedFn || !pineconeAdapter) return out;
 
   let vector = null;
   try { vector = await embedFn(question); } catch { return out; }
@@ -117,7 +117,7 @@ async function vectorRetrieve(question, { topK = 8, namespace, hints }) {
   const k = Math.max(3, Math.min(Number(process.env.RETRIEVAL_TOPK) || topK, 20));
 
   try {
-    const def = await pinecone.query({ vector, topK: k, namespace: namespace || undefined });
+    const def = await pineconeAdapter.query({ vector, topK: k, namespace: namespace || undefined });
     out.defaultMatches = (def || [])
       .filter(m => m && m.text)
       .map(m => ({ ...m, text: cleanChunk(m.text) }));
@@ -125,7 +125,7 @@ async function vectorRetrieve(question, { topK = 8, namespace, hints }) {
 
   try {
     const worldNs = process.env.WORLD_NAMESPACE || 'world';
-    const w = await pinecone.query({ vector, topK: Math.min(k, 5), namespace: worldNs });
+    const w = await pineconeAdapter.query({ vector, topK: Math.min(k, 5), namespace: worldNs });
     out.worldMatches = (w || [])
       .filter(m => m && m.text)
       .map(m => ({ ...m, text: cleanChunk(m.text) }));
@@ -141,7 +141,17 @@ async function vectorRetrieve(question, { topK = 8, namespace, hints }) {
 /* ---------- Main pipeline ---------- */
 export async function buildContextMix({
   question, namespace, topK = 8, requestId, intent = 'generic'
-}) {
+}, {
+  searchPlaybooks: searchPB = searchPlaybooks,
+  formatPlaybookBlock: formatPB = formatPlaybookBlock,
+  derivePlaybookKeywords: deriveKW = derivePlaybookKeywords,
+  buildWorldQueries: buildWQ = buildWorldQueries,
+  serpapiSearch: serpSearch = serpapiSearch,
+  filterAndRank: filterRank = filterAndRank,
+  fetchAndChunk: fetchChunk = fetchAndChunk,
+  aiService: aiSvc = ai,
+  pineconeAdapter: pineconeSvc = pinecone
+} = {}) {
   const meta = {
     requestId,
     playbook_hit: false,
@@ -156,7 +166,7 @@ export async function buildContextMix({
     router_keywords: []
   };
 
-  const hints = derivePlaybookKeywords(question); // now filters stopwords
+  const hints = deriveKW(question); // now filters stopwords
   const parts = [];
   const refs = [];
 
@@ -166,11 +176,11 @@ export async function buildContextMix({
         // Only run when there are meaningful hints (prevents “match everything”)
         if (!hints || hints.length === 0) return;
 
-        const pbs = await searchPlaybooks(question, { limit: 3 });
+        const pbs = await searchPB(question, { limit: 3 });
         meta.sql_rows += pbs.length;
 
         for (const pb of pbs.slice(0, 2)) {
-          const block = formatPlaybookBlock(pb);
+          const block = formatPB(pb);
           if (!block) continue;
 
           if (Array.isArray(pb.ref_domains) && pb.ref_domains.length) {
@@ -186,7 +196,7 @@ export async function buildContextMix({
             ...(Array.isArray(pb.steps) ? pb.steps : []),
             pb.safety
           ].filter(Boolean).join(' ');
-          const rk = derivePlaybookKeywords(kwText);
+          const rk = deriveKW(kwText);
           if (rk.length) {
             meta.router_keywords = Array.from(new Set([
               ...meta.router_keywords,
@@ -209,7 +219,7 @@ export async function buildContextMix({
       let defaultMatches = [];
       let worldMatches = [];
       try {
-        const res = await vectorRetrieve(question, { topK, namespace, hints });
+        const res = await vectorRetrieve(question, { topK, namespace, hints, aiService: aiSvc, pineconeAdapter: pineconeSvc });
         defaultMatches = res.defaultMatches || [];
         worldMatches = res.worldMatches || [];
         meta.vec_default_matches = defaultMatches.length;
@@ -235,30 +245,33 @@ export async function buildContextMix({
       const enabled = String(process.env.WORLD_SEARCH_ENABLED || '').toLowerCase();
       if (!['1', 'true', 'yes', 'on'].includes(enabled)) return;
 
+      const threshold = Number(process.env.WORLD_SEARCH_PARTS_THRESHOLD) || 4;
+      if (parts.length >= threshold) return;
+
       const allowed = (meta.allow_domains || []).map(d => String(d).toLowerCase());
       if (allowed.length === 0) return;
 
       try {
-        const queries = buildWorldQueries(question);
+        const queries = buildWQ(question);
         const topKWorld = Math.max(1, Math.min(Number(process.env.WORLD_SEARCH_TOPK) || 2, 5));
         const seen = new Set();
 
         for (const q of queries) {
           let results = [];
           try {
-            results = await serpapiSearch(q, { num: topKWorld * 2 });
+            results = await serpSearch(q, { num: topKWorld * 2 });
           } catch (e) {
             meta.failures.push(`serpapi:${e.message}`);
             continue;
           }
-          const ranked = filterAndRank(results).slice(0, topKWorld);
+          const ranked = filterRank(results).slice(0, topKWorld);
           for (const r of ranked) {
             try {
               const urlObj = new URL(r.link);
               const host = urlObj.hostname.toLowerCase();
               if (allowed.length && !allowed.some(d => host === d || host.endsWith(`.${d}`))) continue;
 
-              const chunks = await fetchAndChunk(r.link);
+              const chunks = await fetchChunk(r.link);
               let addedRef = false;
               for (const ch of chunks) {
                 const txt = cleanChunk(ch);
