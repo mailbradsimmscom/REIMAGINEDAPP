@@ -11,6 +11,12 @@ const summaryEl = document.getElementById('answer-summary');
 const rawEl = document.getElementById('answer-raw');
 const jsonEl = document.getElementById('answer-json');
 const serverEl = document.getElementById('server');
+const feedbackEl = document.getElementById('feedback');
+const thumbUpBtn = document.getElementById('thumbUp');
+
+let lastQuestion = null;
+let lastBoatId = null;
+let lastStructured = null;
 
 // Show server origin
 if (serverEl) serverEl.textContent = window.location.origin;
@@ -98,6 +104,7 @@ if (form) {
     rawEl.innerHTML = '';
     jsonEl.hidden = true;
     jsonEl.textContent = '';
+    if (feedbackEl) feedbackEl.hidden = true;
 
     try {
       const res = await fetch(endpoint, {
@@ -117,8 +124,13 @@ if (form) {
       titleEl.textContent = data.title || 'Answer';
       summaryEl.textContent = data.summary || '';
 
-      const md = data?.raw?.text || '';
+      const md = data?.raw?.text || data?._structured?.raw?.text || '';
       renderMarkdownInto(rawEl, md);
+
+      lastQuestion = question;
+      lastBoatId = boat_id;
+      lastStructured = data?._structured || data || null;
+      if (feedbackEl) feedbackEl.hidden = false;
 
       if (apiModeEl?.checked) {
         jsonEl.hidden = false;
@@ -132,4 +144,28 @@ if (form) {
   });
 } else {
   console.warn('[ui] form #a not found. Check your index.html form id.');
+}
+
+if (thumbUpBtn) {
+  thumbUpBtn.addEventListener('click', async () => {
+    if (!lastQuestion || !lastStructured) return;
+    const evidence_ids = Array.isArray(lastStructured?.raw?.references)
+      ? lastStructured.raw.references.map(r => r.id).filter(Boolean)
+      : [];
+    try {
+      await fetch('/qa/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: lastQuestion,
+          boat_id: lastBoatId,
+          thumb: 'up',
+          structured: lastStructured,
+          evidence_ids
+        })
+      });
+    } catch (err) {
+      console.error('[feedback] error:', err);
+    }
+  });
 }
