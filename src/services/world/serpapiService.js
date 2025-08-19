@@ -10,15 +10,8 @@ function tokenize(str) {
 }
 
 export function buildWorldQueries(asset = {}, router = {}) {
-  const {
-    brand = '',
-    model = '',
-    spec = ''
-  } = asset || {};
-  const {
-    keywords = [],
-    allowDomains = []
-  } = router || {};
+  const { brand = '', model = '', spec = '' } = asset || {};
+  const { keywords = [], allowDomains = [] } = router || {};
 
   const brandTokens = tokenize(brand);
   const modelTokens = tokenize(model);
@@ -26,7 +19,7 @@ export function buildWorldQueries(asset = {}, router = {}) {
 
   const baseTokens = [...brandTokens, ...modelTokens, ...specTokens];
   if (!baseTokens.length) {
-    return { queries: [], brandTokens, modelTokens, specTokens };
+    return { queries: [] };
   }
 
   const base = baseTokens.join(' ');
@@ -46,7 +39,7 @@ export function buildWorldQueries(asset = {}, router = {}) {
     if (trimmed && !queries.includes(trimmed)) queries.push(trimmed);
   }
 
-  return { queries, brandTokens, modelTokens, specTokens };
+  return { queries };
 }
 
 export async function serpapiSearch(queries = [], { engine = 'google', num = 10 } = {}) {
@@ -83,15 +76,15 @@ function escapeRegex(str) {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function filterAndRank(results = [], {
-  brandTokens = [],
-  modelTokens = [],
-  allowDomains = [],
-  manualKeywords = [],
-  topK = 5
-} = {}) {
+export function filterAndRank(results = [], asset = {}, router = {}, topK = 5) {
+  const { brand = '', model = '' } = asset || {};
+  const { allowDomains = [], keywords = [] } = router || {};
+
+  const brandTokens = tokenize(brand);
+  const modelTokens = tokenize(model);
+
   const allow = allowDomains.map(d => String(d).toLowerCase());
-  const manual = manualKeywords.map(k => String(k).toLowerCase());
+  const manual = keywords.map(k => String(k).toLowerCase());
 
   function hostname(url) {
     try { return new URL(url).hostname.toLowerCase(); } catch { return ''; }
