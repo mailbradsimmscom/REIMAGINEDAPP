@@ -15,16 +15,16 @@
   "dependencies": {
     "@pinecone-database/pinecone": "^2.2.2",
     "@supabase/supabase-js": "^2.55.0",
+    "cheerio": "^1.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "morgan": "^1.10.1",
     "openai": "^4.104.0",
-    "pino": "^9.9.0",
-    "zod": "^3.25.76",
     "pdf-parse": "^1.1.1",
-    "cheerio": "^1.0.0",
-    "serpapi": "^1.0.0"
+    "pino": "^9.9.0",
+    "serpapi": "^1.1.1",
+    "zod": "^3.25.76"
   },
   "license": "UNLICENSED"
 }
