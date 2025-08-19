@@ -15,63 +15,119 @@ const serverEl = document.getElementById('server');
 // Show server origin
 if (serverEl) serverEl.textContent = window.location.origin;
 
-// Helper: POST JSON
-async function postJSON(url, body) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`${res.status} ${res.statusText}: ${t}`);
-  }
-  return res.json();
+// --- Minimal markdown renderer ---
+// We *do not* change content meaning; we just convert simple markdown to HTML.
+function inlineMD(s) {
+  // bold **text**
+  return String(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 }
 
-// Submit handler
-if (form && questionEl) {
+function renderMarkdownInto(node, md) {
+  const text = String(md || '').trim();
+  node.innerHTML = '';
+
+  if (!text) return;
+
+  // Split by blank lines into blocks
+  const blocks = text.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+  const container = document.createElement('div');
+  container.className = 'md';
+
+  for (const block of blocks) {
+    // Headings that are a single bold line
+    if (/^\*\*[^*]+\*\*$/.test(block)) {
+      const h = document.createElement('h3');
+      h.innerHTML = inlineMD(block).replace(/^<strong>|<\/strong>$/g, '');
+      container.appendChild(h);
+      continue;
+    }
+
+    // Ordered list (lines starting with "N. ")
+    if (/^(\d+\.\s+.+(\n)?)+$/m.test(block)) {
+      const ol = document.createElement('ol');
+      block.split('\n').forEach(line => {
+        const m = line.match(/^(\d+)\.\s+(.*)$/);
+        if (m) {
+          const li = document.createElement('li');
+          li.innerHTML = inlineMD(m[2]);
+          ol.appendChild(li);
+        }
+      });
+      container.appendChild(ol);
+      continue;
+    }
+
+    // Bulleted list (lines starting with "• " or "- ")
+    if (/^([•\-]\s+.+(\n)?)+$/m.test(block)) {
+      const ul = document.createElement('ul');
+      block.split('\n').forEach(line => {
+        const m = line.match(/^[•\-]\s+(.*)$/);
+        if (m) {
+          const li = document.createElement('li');
+          li.innerHTML = inlineMD(m[1]);
+          ul.appendChild(li);
+        }
+      });
+      container.appendChild(ul);
+      continue;
+    }
+
+    // Fallback paragraph
+    const p = document.createElement('p');
+    p.innerHTML = inlineMD(block.replace(/\n/g, ' '));
+    container.appendChild(p);
+  }
+
+  node.appendChild(container);
+}
+
+// --- Submit handler ---
+if (form) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const question = (questionEl.value || '').trim();
-    const boat_id = (boatEl?.value || '').trim() || null;
-    const useApi = !!apiModeEl?.checked;
+    const question = (questionEl?.value || '').trim();
+    if (!question) return;
 
-    // Clear UI
-    titleEl.textContent = '';
+    const boat_id = (boatEl?.value || '').trim() || null;
+    const endpoint = apiModeEl?.checked ? '/bff/api/query' : '/bff/web/query';
+
+    // UI: thinking state (do not clear the question)
+    titleEl.textContent = '…thinking';
     summaryEl.textContent = '';
-    rawEl.textContent = '';
+    rawEl.innerHTML = '';
     jsonEl.hidden = true;
     jsonEl.textContent = '';
 
-    if (!question) {
-      rawEl.textContent = 'Please enter a question.';
-      return;
-    }
-
     try {
-      const endpoint = useApi ? '/bff/api/query' : '/bff/web/query';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, boat_id })
+      });
 
-      const payload = {
-        question,
-        boat_id: boat_id || undefined,
-      };
+      // If server returns non-200, surface a readable error
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || `HTTP ${res.status}`);
+      }
 
-      const data = await postJSON(endpoint, payload);
+      const data = await res.json();
 
-      // We intentionally do NOT add any extra UI sections.
-      // Render only the model’s raw text as returned by the server.
-      const rawText = data?.raw?.text || '';
-      rawEl.textContent = rawText;
+      titleEl.textContent = data.title || 'Answer';
+      summaryEl.textContent = data.summary || '';
 
-      if (useApi) {
+      const md = data?.raw?.text || '';
+      renderMarkdownInto(rawEl, md);
+
+      if (apiModeEl?.checked) {
         jsonEl.hidden = false;
         jsonEl.textContent = JSON.stringify(data, null, 2);
       }
     } catch (err) {
       console.error('[ask] error:', err);
-      rawEl.textContent = err?.message || String(err);
+      titleEl.textContent = 'Error';
+      summaryEl.textContent = err?.message || String(err);
     }
   });
 } else {

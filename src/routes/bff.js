@@ -8,9 +8,6 @@ import { persistConversation } from '../services/sql/persistenceService.js';
 
 const router = Router();
 
-// Toggle via ENV; default is to DISABLE writes (value '1')
-const DISABLE_CACHE_WRITES = String(process.env.DISABLE_CACHE_WRITES ?? '1') === '1';
-
 async function handleQuery(req, res, { client = 'web' } = {}) {
   try {
     const {
@@ -21,7 +18,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
       topK,
       context,
       references,
-      intent: clientIntent,
+      intent: clientIntent
     } = req.body || {};
     const requestId = req.id;
 
@@ -43,26 +40,25 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
         question,
         contextText,
         references: refs,
-        tone,
+        tone
       });
     } else {
-      // 1) Semantic cache (reads still enabled)
+      // 1) Semantic cache
       const hit = await cacheLookup({ question, boatId: boat_id || null });
       if (hit.hit && hit.payload?.raw?.text) {
         structured = hit.payload;
         fromCache = true;
       } else {
         // 2) Retrieval: SQL-first (playbooks + boat knowledge), then vector
-        const intent = clientIntent || (await classifyQuestion(question));
+        const intent = clientIntent || await classifyQuestion(question);
         const mix = await buildContextMix({
           question,
           boatId: boat_id || null,
           namespace,
           topK,
           requestId,
-          intent,
+          intent
         });
-
         contextText = mix.contextText || '';
         refs = Array.isArray(mix.references) ? mix.references : [];
         mixMeta = mix.meta || null;
@@ -71,7 +67,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
           question,
           contextText,
           references: refs,
-          tone,
+          tone
         });
       }
     }
@@ -85,17 +81,13 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
     if (fromCache) {
       payload._cache = { hit: true };
     }
-    if (DISABLE_CACHE_WRITES) {
-      // helpful flag in API mode to confirm writes are disabled
-      payload._cache = { ...(payload._cache || {}), write_disabled: true };
-    }
 
-    // 4) Background persistence + (optional) cache store (non-blocking)
+    // 4) Background persistence + cache store (non-blocking)
     (async () => {
       try {
         const topScores = (structured?.raw?.references || [])
-          .map((r) => r?.score)
-          .filter((s) => typeof s === 'number')
+          .map(r => r?.score)
+          .filter(s => typeof s === 'number')
           .sort((a, b) => b - a)
           .slice(0, 3);
 
@@ -103,10 +95,10 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
           ? topScores.reduce((a, b) => a + b, 0) / topScores.length
           : null;
 
-        const sourcesUsed = (structured?.raw?.references || []).map((r) => ({
+        const sourcesUsed = (structured?.raw?.references || []).map(r => ({
           id: r?.id,
           source: r?.source,
-          score: r?.score,
+          score: r?.score
         }));
 
         await persistConversation({
@@ -114,16 +106,15 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
           question,
           answerText: structured?.raw?.text || '',
           confidence,
-          sourcesUsed,
+          sourcesUsed
         });
 
-        // *** Writes to cache are disabled when DISABLE_CACHE_WRITES === true ***
-        if (!fromCache && !DISABLE_CACHE_WRITES) {
+        if (!fromCache) {
           await cacheStore({
             question,
             boatId: boat_id || null,
             structuredAnswer: structured,
-            references: structured?.raw?.references || [],
+            references: structured?.raw?.references || []
           });
         }
       } catch (e) {
