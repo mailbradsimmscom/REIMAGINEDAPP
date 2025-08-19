@@ -6,6 +6,12 @@ import {
   formatPlaybookBlock,
   derivePlaybookKeywords
 } from '../sql/playbookService.js';
+import {
+  buildWorldQueries,
+  serpapiSearch,
+  filterAndRank
+} from '../world/serpapiService.js';
+import { fetchAndChunk } from '../fetch/fetchAndChunk.js';
 import retrievalConfig from './retrievalConfig.json' with { type: 'json' };
 import intentConfig from './intentConfig.json' with { type: 'json' };
 
@@ -222,6 +228,57 @@ export async function buildContextMix({
       for (const m of prunedWorld) {
         parts.push(m.text);
         refs.push({ id: m.id, source: m.source || 'world', score: m.score });
+      }
+    },
+
+    async worldSearch() {
+      const enabled = String(process.env.WORLD_SEARCH_ENABLED || '').toLowerCase();
+      if (!['1', 'true', 'yes', 'on'].includes(enabled)) return;
+
+      const allowed = (meta.allow_domains || []).map(d => String(d).toLowerCase());
+      if (allowed.length === 0) return;
+
+      try {
+        const queries = buildWorldQueries(question);
+        const topKWorld = Math.max(1, Math.min(Number(process.env.WORLD_SEARCH_TOPK) || 2, 5));
+        const seen = new Set();
+
+        for (const q of queries) {
+          let results = [];
+          try {
+            results = await serpapiSearch(q, { num: topKWorld * 2 });
+          } catch (e) {
+            meta.failures.push(`serpapi:${e.message}`);
+            continue;
+          }
+          const ranked = filterAndRank(results).slice(0, topKWorld);
+          for (const r of ranked) {
+            try {
+              const urlObj = new URL(r.link);
+              const host = urlObj.hostname.toLowerCase();
+              if (allowed.length && !allowed.some(d => host === d || host.endsWith(`.${d}`))) continue;
+
+              const chunks = await fetchAndChunk(r.link);
+              let addedRef = false;
+              for (const ch of chunks) {
+                const txt = cleanChunk(ch);
+                if (!txt) continue;
+                const key = txt.slice(0, 160);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                parts.push(txt);
+                if (!addedRef) {
+                  refs.push({ id: r.link, source: r.link, score: 0.2 });
+                  addedRef = true;
+                }
+              }
+            } catch (err) {
+              meta.failures.push(`worldFetch:${err.message}`);
+            }
+          }
+        }
+      } catch (e) {
+        meta.failures.push(`world:${e.message}`);
       }
     }
   };
