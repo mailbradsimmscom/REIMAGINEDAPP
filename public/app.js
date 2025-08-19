@@ -3,7 +3,6 @@
 // Hook the IDs that are already in your HTML (no changes to HTML required)
 const form = document.getElementById('a');            // <form id="a">
 const questionEl = document.getElementById('question');
-const boatEl = document.getElementById('boat');
 const apiModeEl = document.getElementById('apiMode');
 
 const titleEl = document.getElementById('answer-title');
@@ -15,7 +14,6 @@ const feedbackEl = document.getElementById('feedback');
 const thumbUpBtn = document.getElementById('thumbUp');
 
 let lastQuestion = null;
-let lastBoatId = null;
 let lastStructured = null;
 
 // Show server origin
@@ -95,7 +93,6 @@ if (form) {
     const question = (questionEl?.value || '').trim();
     if (!question) return;
 
-    const boat_id = (boatEl?.value || '').trim() || null;
     const endpoint = apiModeEl?.checked ? '/bff/api/query' : '/bff/web/query';
 
     // UI: thinking state (do not clear the question)
@@ -110,7 +107,7 @@ if (form) {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, boat_id })
+        body: JSON.stringify({ question })
       });
 
       // If server returns non-200, surface a readable error
@@ -128,7 +125,6 @@ if (form) {
       renderMarkdownInto(rawEl, md);
 
       lastQuestion = question;
-      lastBoatId = boat_id;
       lastStructured = data?._structured || data || null;
       if (feedbackEl) feedbackEl.hidden = false;
 
@@ -158,7 +154,6 @@ if (thumbUpBtn) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: lastQuestion,
-          boat_id: lastBoatId,
           thumb: 'up',
           structured: lastStructured,
           evidence_ids

@@ -13,7 +13,6 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
     const {
       question,
       tone,
-      boat_id,
       namespace,
       topK,
       context,
@@ -44,7 +43,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
       });
     } else {
       // 1) Semantic cache
-      const hit = await cacheLookup({ question, boatId: boat_id || null });
+      const hit = await cacheLookup({ question });
       if (hit.hit && hit.payload?.raw?.text) {
         structured = hit.payload;
         fromCache = true;
@@ -53,7 +52,6 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
         const intent = clientIntent || await classifyQuestion(question);
         const mix = await buildContextMix({
           question,
-          boatId: boat_id || null,
           namespace,
           topK,
           requestId,
@@ -108,7 +106,6 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
         }));
 
         await persistConversation({
-          boatId: boat_id || null,
           question,
           answerText: structured?.raw?.text || '',
           confidence,
