@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const TABLE = 'system_knowledge';
 
-export async function upsertDoc({ id, boat_id, system_id, knowledge_type, title, content, source, tags, version }) {
-  const row = { id, boat_id, system_id, knowledge_type, title, content, source, tags, version, deleted_at: null };
+export async function upsertDoc({ id, system_id, knowledge_type, title, content, source, tags, version }) {
+  const row = { id, system_id, knowledge_type, title, content, source, tags, version, deleted_at: null };
   const { data, error } = await supabase.from(TABLE).upsert(row).select().single();
   if (error) throw error;
   return data; // includes id

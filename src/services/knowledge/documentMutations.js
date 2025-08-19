@@ -36,7 +36,6 @@ export async function updateDocument(id, { content, title, source, tags }) {
         title: title ?? current.title,
         text: chunks[idx]
       };
-      if (current.boat_id)   meta.boatId = current.boat_id;
       if (current.system_id) meta.systemId = current.system_id;
       if (source ?? current.source) meta.source = source ?? current.source;
 
