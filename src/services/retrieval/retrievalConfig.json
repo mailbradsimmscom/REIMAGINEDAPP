@@ -1,4 +1,4 @@
 {
-  "default": ["playbookSearch", "vectorSearch"],
-  "maintenance": ["playbookSearch", "vectorSearch"]
+  "default": ["playbookSearch", "vectorSearch", "worldSearch"],
+  "maintenance": ["playbookSearch", "vectorSearch", "worldSearch"]
 }
