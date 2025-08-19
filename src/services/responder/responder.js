@@ -58,7 +58,6 @@ function synthesizeFromContext({ question, contextText, references }) {
   for (const l of lines) {
     if (/^\d+\./.test(l)) { bullets.push(l.replace(/^\d+\.\s*/, '')); continue; }
     if (/^[-•]\s*/.test(l)) { bullets.push(l.replace(/^[-•]\s*/, '')); continue; }
-    if (/\b(helm|station|transfer|neutral|zf|vc[-\s]?20|can|nmea)\b/i.test(l)) bullets.push(l);
     if (bullets.length >= 10) break;
   }
 
