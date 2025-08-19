@@ -62,6 +62,35 @@ test('worldSearch fetches allowed domain when parts below threshold', async () =
   assert.ok(!res.contextText.includes('hidden step'));
 });
 
+test('worldSearch uses WORLD_ALLOWLIST when no playbook domains', async () => {
+  process.env.WORLD_SEARCH_ENABLED = '1';
+  process.env.WORLD_SEARCH_PARTS_THRESHOLD = '3';
+  process.env.WORLD_ALLOWLIST = 'allowed.com';
+
+  let fetchCalledWith = null;
+  const deps = makeDeps(1, async url => {
+    fetchCalledWith = url;
+    return [{ text: 'world data', metadata: { url, source: 'oem' } }];
+  });
+  deps.searchPlaybooks = async () => [{
+    id: 'pb1',
+    title: 'PB',
+    summary: 'Sum',
+    steps: ['hidden step'],
+    safety: 'safe',
+    ref_domains: []
+  }];
+
+  const { buildContextMix } = await import('./mixerService.js');
+  const res = await buildContextMix({ question: 'foo question', namespace: 'x' }, deps);
+
+  assert.deepEqual(res.meta.allow_domains, []);
+  assert.equal(fetchCalledWith, 'https://allowed.com/a');
+  assert.match(res.contextText, /world data/);
+  assert.ok(res.references.some(r => r.source === 'https://allowed.com/a'));
+  assert.ok(!res.contextText.includes('hidden step'));
+});
+
 test('worldSearch skipped when parts exceed threshold', async () => {
   process.env.WORLD_SEARCH_ENABLED = '1';
   process.env.WORLD_SEARCH_PARTS_THRESHOLD = '3';
