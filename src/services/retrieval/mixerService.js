@@ -145,7 +145,9 @@ export async function buildContextMix({
     vec_world_matches: 0,
     pruned_default: 0,
     pruned_world: 0,
-    failures: []
+    failures: [],
+    allow_domains: [],
+    router_keywords: []
   };
 
   const hints = derivePlaybookKeywords(question); // now filters stopwords
@@ -165,14 +167,27 @@ export async function buildContextMix({
           const block = formatPlaybookBlock(pb);
           if (!block) continue;
 
-          const blockText = [
-            block.title ? `## ${block.title}` : '',
-            block.summary || '',
-            block.steps?.length ? `Steps:\n- ${block.steps.join('\n- ')}` : '',
-            block.safety ? `Safety:\n${block.safety}` : ''
-          ].filter(Boolean).join('\n\n');
+          if (Array.isArray(pb.ref_domains) && pb.ref_domains.length) {
+            meta.allow_domains = Array.from(new Set([
+              ...meta.allow_domains,
+              ...pb.ref_domains
+            ]));
+          }
 
-          parts.push(blockText);
+          const kwText = [
+            pb.title,
+            pb.summary,
+            ...(Array.isArray(pb.steps) ? pb.steps : []),
+            pb.safety
+          ].filter(Boolean).join(' ');
+          const rk = derivePlaybookKeywords(kwText);
+          if (rk.length) {
+            meta.router_keywords = Array.from(new Set([
+              ...meta.router_keywords,
+              ...rk
+            ]));
+          }
+
           refs.push({
             id: block.id,
             source: block.source,
