@@ -174,15 +174,18 @@ export async function buildContextMix({
   const hints = deriveKW(question); // now filters stopwords
   const parts = [];
   const refs = [];
+  const assets = [];
+  const playbooks = [];
+  const webSnippets = [];
 
   const steps = {
     async assetSearch() {
       if (!ENV.RETRIEVAL_ASSET_ENABLED) return;
       try {
         if (!hints || hints.length === 0) return;
-        const assets = await searchAS(hints, { limit: 3 });
-        meta.asset_rows += assets.length;
-        for (const a of assets) {
+        const assetsRes = await searchAS(hints, { limit: 3 });
+        meta.asset_rows += assetsRes.length;
+        for (const a of assetsRes) {
           const text = [
             [a.manufacturer, a.model].filter(Boolean).join(' '),
             a.description,
@@ -190,6 +193,14 @@ export async function buildContextMix({
           ].filter(Boolean).join('. ');
           if (text) parts.push(text);
           refs.push({ id: a.id, source: a.source || 'asset', score: Math.min(0.8, (a.score || 1) / 10 + 0.6) });
+          assets.push({
+            id: a.id,
+            manufacturer: a.manufacturer,
+            model: a.model,
+            description: a.description,
+            notes: a.notes,
+            source: a.source || 'asset'
+          });
           meta.asset_selected += 1;
         }
       } catch (e) { meta.failures.push(`asset:${e.message}`); }
@@ -207,6 +218,7 @@ export async function buildContextMix({
         for (const pb of pbs.slice(0, 2)) {
           const block = formatPB(pb);
           if (!block) continue;
+          playbooks.push(block);
 
           if (Array.isArray(pb.ref_domains) && pb.ref_domains.length) {
             meta.allow_domains = Array.from(new Set([
@@ -309,10 +321,15 @@ export async function buildContextMix({
 
             const chunks = await fetchChunk(r.link);
             let addedRef = false;
+            let addedSnippet = false;
             for (const ch of chunks) {
               const txt = cleanChunk(ch?.text ?? ch);
               if (!txt) continue;
               parts.push(txt);
+              if (!addedSnippet) {
+                webSnippets.push({ url: r.link, text: txt });
+                addedSnippet = true;
+              }
               if (!addedRef) {
                 refs.push({ id: r.link, source: r.link, score: 0.2 });
                 addedRef = true;
@@ -333,7 +350,7 @@ export async function buildContextMix({
 
   const references = dedupById(refs);
   const contextText = capContext(cleanChunk(parts.join('\n\n')), 6000);
-  return { contextText, references, meta };
+  return { contextText, references, meta, assets, playbooks, webSnippets };
 }
 
 export default { buildContextMix, classifyQuestion };
