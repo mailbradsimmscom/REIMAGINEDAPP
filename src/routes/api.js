@@ -22,7 +22,6 @@ router.post('/ingest/text', async (req, res) => {
   try {
     const Schema = z.object({
       id: z.string().uuid().optional(),
-      boat_id: z.string().uuid().optional(),
       system_id: z.string().uuid().optional(),
       knowledge_type: z.string().min(1),
       title: z.string().min(1),

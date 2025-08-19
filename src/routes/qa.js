@@ -11,7 +11,6 @@ const router = Router();
  * {
  *   "question": "...",
  *   "answer_id": "ans_123",   // optional
- *   "boat_id": "boat_456",    // optional
  *   "thumb": "up" | "down" | "neutral",
  *   "structured": { ... },     // full structured answer
  *   "reason": "short text",
@@ -22,7 +21,7 @@ const router = Router();
  */
 router.post('/feedback', async (req, res) => {
   try {
-    const { question, answer_id, boat_id, thumb, structured, reason, intent, entities, evidence_ids } = req.body || {};
+    const { question, answer_id, thumb, structured, reason, intent, entities, evidence_ids } = req.body || {};
 
     if (!question || !thumb) {
       return res.status(400).json({ ok: false, error: 'Missing required fields: question, thumb' });
@@ -35,7 +34,6 @@ router.post('/feedback', async (req, res) => {
       try {
         await cacheStore({
           question,
-          boatId: boat_id || null,
           structuredAnswer: structured,
           references: structured?.raw?.references || []
         });
