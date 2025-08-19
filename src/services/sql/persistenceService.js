@@ -4,7 +4,6 @@
 import { supabase } from '../../config/supabase.js';
 
 export async function persistConversation({
-  boatId,
   question,
   answerText,
   confidence,
@@ -17,7 +16,6 @@ export async function persistConversation({
   const { error } = await supabase
     .from('boat_conversations')
     .insert([{
-      boat_id: boatId || null,
       user_question: question || '',
       ai_response: answerText || '',
       confidence_score: typeof confidence === 'number' ? confidence : null,
