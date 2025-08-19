@@ -1,8 +1,5 @@
 {
   "intents": {
-    "helm-transfer": {
-      "all": ["helm", "(transfer|take\\s*over|hand\\s*off)"]
-    },
     "watermaker": {
       "any": ["watermaker", "water maker", "reverse\\s+osmosis"]
     }
