@@ -17,12 +17,19 @@ function makeDeps(vectorCount, fetchFn) {
     }],
     formatPlaybookBlock: row => ({ id: row.id, source: 'pb' }),
     derivePlaybookKeywords: () => ['foo'],
-    buildWorldQueries: () => ['q'],
-    serpapiSearch: async () => [
-      { link: 'https://allowed.com/a' },
-      { link: 'https://other.com/b' }
-    ],
-    filterAndRank: r => r,
+    buildWorldQueries: () => ({
+      queries: ['q'],
+      brandTokens: [],
+      modelTokens: []
+    }),
+    serpapiSearch: async qs => {
+      assert.deepEqual(qs, ['q']);
+      return [
+        { link: 'https://allowed.com/a' },
+        { link: 'https://other.com/b' }
+      ];
+    },
+    filterAndRank: (r, { topK }) => r.slice(0, topK),
     fetchAndChunk: fetchFn,
     aiService: { embed: async () => [0.1, 0.2, 0.3] },
     pineconeAdapter: {
