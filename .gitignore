@@ -174,3 +174,4 @@ dist
 # Env
 .env
 .env.*
+!.env.example
