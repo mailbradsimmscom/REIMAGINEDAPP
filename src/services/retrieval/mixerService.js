@@ -1,5 +1,4 @@
 // src/services/retrieval/mixerService.js
-import supabase from '../../config/supabase.js';
 import { pineconeAdapter as pinecone } from '../vector/pineconeAdapter.js';
 import * as ai from '../ai/aiService.js';
 import {
@@ -95,24 +94,6 @@ function capContext(text, maxChars = 6000) {
   return cut.slice(0, lastBreak > 1200 ? lastBreak : maxChars);
 }
 
-/* ---------- Boat-specific SQL (optional) ---------- */
-async function fetchBoatKnowledge(boatId, limit = 2) {
-  if (!supabase || !boatId) return [];
-  const { data, error } = await supabase
-    .from('system_knowledge')
-    .select('id,title,content,source,knowledge_type,updated_at')
-    .eq('boat_id', boatId)
-    .order('updated_at', { ascending: false })
-    .limit(limit);
-  if (error || !Array.isArray(data)) return [];
-  return data.map(r => ({
-    id: r.id,
-    score: 0.85,
-    source: 'system_knowledge',
-    text: cleanChunk([r.title ? `**${r.title}**` : '', r.content || ''].filter(Boolean).join('\n\n'))
-  }));
-}
-
 /* ---------- Vector (Pinecone) ---------- */
 async function vectorRetrieve(question, { topK = 8, namespace, hints }) {
   const out = { defaultMatches: [], worldMatches: [] };
@@ -153,7 +134,7 @@ async function vectorRetrieve(question, { topK = 8, namespace, hints }) {
 
 /* ---------- Main pipeline ---------- */
 export async function buildContextMix({
-  question, boatId = null, namespace, topK = 8, requestId, intent = 'generic'
+  question, namespace, topK = 8, requestId, intent = 'generic'
 }) {
   const meta = {
     requestId,
@@ -201,17 +182,6 @@ export async function buildContextMix({
         }
         if (meta.sql_selected > 0) meta.playbook_hit = true;
       } catch (e) { meta.failures.push(`playbooks:${e.message}`); }
-    },
-
-    async boatKnowledge() {
-      try {
-        const boat = await fetchBoatKnowledge(boatId, 2);
-        for (const b of boat) {
-          parts.push(b.text);
-          refs.push({ id: b.id, source: 'system_knowledge', score: b.score });
-          meta.sql_selected += 1;
-        }
-      } catch (e) { meta.failures.push(`boat_sql:${e.message}`); }
     },
 
     async vectorSearch() {

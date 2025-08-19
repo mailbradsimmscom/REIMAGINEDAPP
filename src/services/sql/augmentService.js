@@ -20,7 +20,7 @@ const PLAYBOOKS_LINES_MAX = envNum('PLAYBOOKS_LINES_MAX', 4);
 const SYSTEM_KNOWLEDGE_LINES_MAX = envNum('SYSTEM_KNOWLEDGE_LINES_MAX', 6);
 const CONTEXT_LINES_MAX = envNum('CONTEXT_LINES_MAX', 12);
 
-export async function augmentWithSQL({ question, boatId }) {
+export async function augmentWithSQL({ question }) {
   const meta = {
     focus_system: null,
     sql_rows: 0,
@@ -34,10 +34,12 @@ export async function augmentWithSQL({ question, boatId }) {
 
   // 1) Resolve systems and focus
   let systems = [];
-  if (boatId) {
-    const { rows, error } = await getBoatSystems(boatId);
+  try {
+    const { rows, error } = await getBoatSystems();
     if (error) meta.failures.push('sql_boat_systems:' + error);
     systems = rows || [];
+  } catch (e) {
+    meta.failures.push('sql_boat_systems:' + e.message);
   }
   const focus = findFocusSystem(question, systems);
   if (focus) meta.focus_system = focus;
@@ -80,7 +82,6 @@ export async function augmentWithSQL({ question, boatId }) {
   try {
     if (!atCap()) {
       const { lines: sLines, refs: sRefs, meta: m } = await getSystemKnowledgeSnippets({
-        boatId,
         focusSystem: focus,
         question,
         linesMax: SYSTEM_KNOWLEDGE_LINES_MAX

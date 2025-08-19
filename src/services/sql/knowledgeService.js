@@ -6,14 +6,13 @@ const norm = (s) => String(s || '').toLowerCase();
 const has = (hay, needle) => norm(hay).includes(norm(needle));
 
 /**
- * Get boat systems for a given boat_id
+ * Get boat systems (single boat setup, so no boat_id filter)
  */
-export async function getBoatSystems(boatId) {
-  if (!supabase || !boatId) return { rows: [], error: 'no_supabase_or_boat' };
+export async function getBoatSystems() {
+  if (!supabase) return { rows: [], error: 'no_supabase' };
   const { data, error } = await supabase
     .from('boat_systems')
     .select('id, boat_id, category, brand, model, serial_number, installation_date, specifications, updated_at')
-    .eq('boat_id', boatId)
     .order('updated_at', { ascending: false });
 
   return { rows: data || [], error: error?.message || null };
@@ -120,16 +119,15 @@ export async function getPlaybookSnippets({ question, focusSystem, linesMax = 4 
 }
 
 /**
- * Fetch system_knowledge snippets for a boat and (optionally) focus system.
+ * Fetch system_knowledge snippets (single boat setup, no boat_id filter)
  * Returns up to `linesMax` lines with origin='boat_sql'
  */
-export async function getSystemKnowledgeSnippets({ boatId, focusSystem, question, linesMax = 6 }) {
-  if (!supabase || !boatId) return { lines: [], refs: [], meta: { sql_offline: !supabase, no_boat: !boatId } };
+export async function getSystemKnowledgeSnippets({ focusSystem, question, linesMax = 6 }) {
+  if (!supabase) return { lines: [], refs: [], meta: { sql_offline: !supabase } };
 
   let q = supabase
     .from('system_knowledge')
     .select('id, boat_id, system_id, knowledge_type, title, content, source, updated_at')
-    .eq('boat_id', boatId)
     .order('updated_at', { ascending: false });
 
   if (focusSystem?.id) q = q.eq('system_id', focusSystem.id);

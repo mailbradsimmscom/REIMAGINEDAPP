@@ -1,4 +1,4 @@
 {
-  "default": ["playbookSearch", "boatKnowledge", "vectorSearch"],
-  "maintenance": ["playbookSearch", "boatKnowledge", "vectorSearch"]
+  "default": ["playbookSearch", "vectorSearch"],
+  "maintenance": ["playbookSearch", "vectorSearch"]
 }
