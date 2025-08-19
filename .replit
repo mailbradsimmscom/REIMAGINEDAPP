@@ -16,7 +16,11 @@ run = ["bash","-lc","export PORT=3000; node index.js"]
 deploymentTarget = "autoscale"
 ignorePorts = false
 
-# Only expose port 3000
 [[ports]]
 localPort = 3000
 externalPort = 3000
+
+[[ports]]
+localPort = 3002
+externalPort = 80
+

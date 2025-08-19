@@ -1,3 +1,7 @@
 {
-  "intents": {}
+  "intents": {
+    "watermaker": {
+      "any": ["watermaker", "water maker", "reverse\\s+osmosis"]
+    }
+  }
 }
