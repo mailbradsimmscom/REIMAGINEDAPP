@@ -109,7 +109,7 @@ router.delete('/cache', async (req, res) => {
 /**
  * GET /admin/answers
  * Search recent Q/A text (boat_conversations).
- * Query: ?q=watermaker&limit=5
+ * Query: ?q=membrane&limit=5
  */
 router.get('/answers', async (req, res) => {
   if (!supabase) return res.json({ ok: false, error: 'No Supabase client' });

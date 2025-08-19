@@ -159,13 +159,13 @@ curl -sf "$BASE/ready" && echo
 
 echo "== API Query =="
 curl -sf -X POST "$BASE/api/query" -H 'Content-Type: application/json' \
-  -d '{"question":"Tell me about the watermaker maintenance schedule"}' && echo
+  -d '{"question":"Tell me about the membrane maintenance schedule"}' && echo
 
 echo "== BFF (web / ios) =="
 curl -sf -X POST "$BASE/bff/web/query" -H 'Content-Type: application/json' \
-  -d '{"question":"Tell me about the watermaker maintenance schedule"}' && echo
+  -d '{"question":"Tell me about the membrane maintenance schedule"}' && echo
 curl -sf -X POST "$BASE/bff/ios/query" -H 'Content-Type: application/json' \
-  -d '{"question":"Tell me about the watermaker maintenance schedule"}' && echo
+  -d '{"question":"Tell me about the membrane maintenance schedule"}' && echo
 
 echo "== Admin =="
 curl -sf "${TOKEN_HEADER[@]}" "$BASE/admin" && echo
@@ -173,7 +173,7 @@ curl -sf "${TOKEN_HEADER[@]}" "$BASE/admin/pinecone" && echo
 curl -sf "${TOKEN_HEADER[@]}" "$BASE/admin/world/settings" && echo
 
 echo "== Debug =="
-curl -sf "${TOKEN_HEADER[@]}" "$BASE/admin/debug/keyword?q=watermaker" && echo
+curl -sf "${TOKEN_HEADER[@]}" "$BASE/admin/debug/keyword?q=membrane" && echo
 curl -sf "${TOKEN_HEADER[@]}" "$BASE/admin/debug/textsearch?q=membrane" && echo
 
 echo "== Public legacy =="
