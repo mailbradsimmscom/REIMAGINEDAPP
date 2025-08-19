@@ -22,7 +22,8 @@
     "pino": "^9.9.0",
     "zod": "^3.25.76",
     "pdf-parse": "^1.1.1",
-    "cheerio": "^1.0.0"
+    "cheerio": "^1.0.0",
+    "serpapi": "^1.0.0"
   },
   "license": "UNLICENSED"
 }
