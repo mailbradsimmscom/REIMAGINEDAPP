@@ -12,7 +12,7 @@ export async function getBoatSystems() {
   if (!supabase) return { rows: [], error: 'no_supabase' };
   const { data, error } = await supabase
     .from('boat_systems')
-    .select('id, boat_id, category, brand, model, serial_number, installation_date, specifications, updated_at')
+    .select('id, category, brand, model, serial_number, installation_date, specifications, updated_at')
     .order('updated_at', { ascending: false });
 
   return { rows: data || [], error: error?.message || null };
@@ -40,7 +40,6 @@ export function findFocusSystem(question, systems = []) {
   const f = top.s;
   return {
     id: f.id,
-    boat_id: f.boat_id,
     category: f.category || null,
     brand: f.brand || null,
     model: f.model || null,
