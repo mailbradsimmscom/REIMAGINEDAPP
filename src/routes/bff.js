@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { composeResponse } from '../services/responder/responder.js';
 import { webSerializer, apiSerializer } from '../views/serializers.js';
 import { buildContextMix, classifyQuestion } from '../services/retrieval/mixerService.js';
-import { cacheLookup, cacheStore } from '../services/cache/answerCacheService.js';
+import { cacheLookup } from '../services/cache/answerCacheService.js';
 import { persistConversation } from '../services/sql/persistenceService.js';
 
 const router = Router();
@@ -73,7 +73,13 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
     }
 
     // 3) Serialize for client
-    let payload = client === 'api' ? apiSerializer(structured) : webSerializer(structured);
+    let payload = client === 'api'
+      ? apiSerializer(structured)
+      : (() => {
+          const out = webSerializer(structured);
+          out._structured = structured;
+          return out;
+        })();
 
     if (process.env.DEBUG_SEARCH === 'true' && client === 'api' && mixMeta) {
       payload._retrieval = mixMeta;
@@ -82,7 +88,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
       payload._cache = { hit: true };
     }
 
-    // 4) Background persistence + cache store (non-blocking)
+    // 4) Background persistence (non-blocking)
     (async () => {
       try {
         const topScores = (structured?.raw?.references || [])
@@ -108,15 +114,6 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
           confidence,
           sourcesUsed
         });
-
-        if (!fromCache) {
-          await cacheStore({
-            question,
-            boatId: boat_id || null,
-            structuredAnswer: structured,
-            references: structured?.raw?.references || []
-          });
-        }
       } catch (e) {
         if (process.env.NODE_ENV !== 'production') {
           console.warn('[persist/cache] error:', e.message);
