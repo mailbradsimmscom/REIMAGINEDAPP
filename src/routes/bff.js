@@ -5,6 +5,7 @@ import { webSerializer, apiSerializer } from '../views/serializers.js';
 import { buildContextMix, classifyQuestion } from '../services/retrieval/mixerService.js';
 import { cacheLookup } from '../services/cache/answerCacheService.js';
 import { persistConversation } from '../services/sql/persistenceService.js';
+import { ENV } from '../config/env.js';
 
 const router = Router();
 
@@ -82,36 +83,38 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
     }
 
     // 4) Background persistence (non-blocking)
-    (async () => {
-      try {
-        const topScores = (structured?.raw?.references || [])
-          .map(r => r?.score)
-          .filter(s => typeof s === 'number')
-          .sort((a, b) => b - a)
-          .slice(0, 3);
+    if (ENV.RETRIEVAL_TELEMETRY_ENABLED) {
+      (async () => {
+        try {
+          const topScores = (structured?.raw?.references || [])
+            .map(r => r?.score)
+            .filter(s => typeof s === 'number')
+            .sort((a, b) => b - a)
+            .slice(0, 3);
 
-        const confidence = topScores.length
-          ? topScores.reduce((a, b) => a + b, 0) / topScores.length
-          : null;
+          const confidence = topScores.length
+            ? topScores.reduce((a, b) => a + b, 0) / topScores.length
+            : null;
 
-        const sourcesUsed = (structured?.raw?.references || []).map(r => ({
-          id: r?.id,
-          source: r?.source,
-          score: r?.score
-        }));
+          const sourcesUsed = (structured?.raw?.references || []).map(r => ({
+            id: r?.id,
+            source: r?.source,
+            score: r?.score
+          }));
 
-        await persistConversation({
-          question,
-          answerText: structured?.raw?.text || '',
-          confidence,
-          sourcesUsed
-        });
-      } catch (e) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn('[persist/cache] error:', e.message);
+          await persistConversation({
+            question,
+            answerText: structured?.raw?.text || '',
+            confidence,
+            sourcesUsed
+          });
+        } catch (e) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[persist/cache] error:', e.message);
+          }
         }
-      }
-    })();
+      })();
+    }
 
     // 5) Respond
     res.json(payload);
