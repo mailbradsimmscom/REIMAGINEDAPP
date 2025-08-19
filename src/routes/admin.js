@@ -119,7 +119,7 @@ router.get('/answers', async (req, res) => {
   try {
     let query = supabase
       .from('boat_conversations')
-      .select('id,boat_id,user_question,ai_response,confidence_score,sources_used,was_helpful,created_at')
+      .select('id,user_question,ai_response,confidence_score,sources_used,was_helpful,created_at')
       .order('created_at', { ascending: false })
       .limit(limit);
 
