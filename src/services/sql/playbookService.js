@@ -1,184 +1,168 @@
 // src/services/sql/playbookService.js
 import supabase from '../../config/supabase.js';
 
-/**
- * Normalize/clean strings a bit before matching/formatting.
- */
-function clean(s = '') {
-  return String(s)
+/* --------------------- helpers --------------------- */
+
+const STOPWORDS = new Set([
+  'the','and','for','you','your','yours','me','my','our','we','us',
+  'a','an','of','in','on','to','from','by','with','as','at','is','are','was','were',
+  'it','its','this','that','these','those','there','here',
+  'about','tell','please','now','today','hey','hi','hello'
+]);
+
+function uniq(arr) { return Array.from(new Set((arr || []).filter(Boolean))); }
+function norm(s = '') {
+  return String(s || '')
     .replace(/\u00A0/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
 
 /**
-<<<<<<< HEAD
  * Derive meaningful keywords strictly from the user's text.
  * - lowercase
  * - drop stopwords
  * - keep only 3..32 chars
-=======
- * Derive robust keyword set for helm transfer / VC20 / ZF-like queries.
- * (No brand hard-coding beyond widely used tokens.)
->>>>>>> 04ae9bb (trying to resolve conflicts)
  */
-export function deriveHelmKeywords(question) {
-  const q = String(question || '').toLowerCase();
-
-  const core = [];
-  if (/\bhelm\b/.test(q)) core.push('helm');
-  if (/\bstation\b/.test(q)) core.push('station');
-  if (/\btransfer\b/.test(q)) core.push('transfer');
-  if (/\bselect\b/.test(q)) core.push('select');
-  if (/\bcontrol\b/.test(q)) core.push('control');
-  if (/\btake\b/.test(q)) core.push('take');
-  if (/\bactive\b/.test(q)) core.push('active');
-  if (/\bupper\b/.test(q)) core.push('upper');
-  if (/\blower\b/.test(q)) core.push('lower');
-
-  if (core.length === 0) return [];
-
-  const brandish = [];
-  if (/\bvc[-\s]?20\b/.test(q)) brandish.push('vc20', 'vc-20', 'vc 20');
-  if (/\bzf\b/.test(q)) brandish.push('zf');
-  if (/\bnmea\s*2000\b|\bn2k\b|\bcan\b/.test(q)) brandish.push('n2k', 'nmea 2000', 'can');
-
-  const phrases = [];
-  if (/won'?t|cannot|can'?t|will not/i.test(q))
-    phrases.push('won’t transfer', 'will not transfer', 'won’t take control');
-
-  const uniq = (arr) =>
-    Array.from(new Set(arr.filter(Boolean).map((s) => s.toLowerCase())));
-  return uniq([...core, ...brandish, ...phrases]);
+export function derivePlaybookKeywords(question = '') {
+  const tokens = String(question)
+    .toLowerCase()
+    .split(/\W+/)
+    .filter(Boolean)
+    .filter(w => w.length >= 3 && w.length <= 32 && !STOPWORDS.has(w));
+  return uniq(tokens).slice(0, 6);
 }
 
 /**
- * Compute a simple match score: trigger overlap + title/summary hits.
+ * Normalize one playbook row into a block object.
  */
-function scorePlaybook(pb, keywords) {
-  const tset = new Set((pb?.triggers || []).map((x) => String(x || '').toLowerCase()));
-  const kset = new Set(keywords);
+export function formatPlaybookBlock(row) {
+  if (!row) return null;
 
-  let overlap = 0;
-  for (const k of kset) if (tset.has(k)) overlap += 2; // triggers are strong
+  const toArray = (v) => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string' && v.trim()) {
+      try { const parsed = JSON.parse(v); return Array.isArray(parsed) ? parsed : []; }
+      catch { return []; }
+    }
+    return [];
+  };
 
-  const title = String(pb?.title || '').toLowerCase();
-  const summary = String(pb?.summary || '').toLowerCase();
-  let textHits = 0;
-  for (const k of kset) {
-    if (title.includes(k)) textHits += 1.5;
-    if (summary.includes(k)) textHits += 1.0;
-  }
-
-  // updated_at recency nudge (optional + tiny)
-  let recency = 0;
-  if (pb?.updated_at) {
+  let steps = [];
+  if (Array.isArray(row.steps)) {
+    steps = row.steps.filter(Boolean).map(norm);
+  } else if (typeof row.steps === 'string' && row.steps.trim()) {
     try {
-      const ageDays = (Date.now() - new Date(pb.updated_at).getTime()) / 86400000;
-      recency = Math.max(0, 0.5 - Math.min(ageDays, 365) * 0.001); // ≤ ~0.5
-    } catch { /* ignore */ }
+      const parsed = JSON.parse(row.steps);
+      if (Array.isArray(parsed)) steps = parsed.filter(Boolean).map(norm);
+    } catch {
+      steps = row.steps.split(/\r?\n/).map(norm).filter(Boolean);
+    }
   }
 
-  return overlap + textHits + recency;
+  const block = {
+    id: row.id,
+    title: norm(row.title || ''),
+    summary: norm(row.summary || ''),
+    steps,
+    safety: norm(row.safety || ''),
+    matchers: toArray(row.matchers),
+    triggers: toArray(row.triggers),
+    updatedAt: row.updated_at || null,
+    source: 'standards_playbooks',
+    score: row.score || null
+  };
+
+  if (!block.title && !block.summary && steps.length === 0 && !block.safety) return null;
+  return block;
 }
 
 /**
- * Query standards_playbooks:
- *   - Pass A: triggers contains (case variants)
- *   - Pass B: OR ilike on title/summary/safety
- * Returns ranked results with a `score`.
+ * Search Supabase "standards_playbooks" using real keywords.
+ * We:
+ *  - bail if no meaningful keywords
+ *  - OR-search title+summary for the first few kws
+ *  - search matchers/triggers arrays for each kw
+ *  - dedup + score by keyword coverage; return top N
  */
-export async function searchPlaybooks(question, { limit = 4 } = {}) {
+export async function searchPlaybooks(question, { limit = 5 } = {}) {
   if (!supabase) return [];
+  const kws = derivePlaybookKeywords(question);
+  if (!kws.length) return []; // IMPORTANT: prevents broad matches
 
-  const keywords = deriveHelmKeywords(question);
-  if (!keywords.length) return [];
-
-  // Try multiple case variants for text[] contains
-  const tries = [
-    keywords,
-    keywords.map((k) => k.toUpperCase()),
-    keywords.map((k) => k[0]?.toUpperCase() + k.slice(1)),
-  ];
-
+  const selectCols = 'id,title,summary,steps,safety,matchers,triggers,updated_at';
   let rows = [];
-  for (const tlist of tries) {
-    const { data, error } = await supabase
-      .from('standards_playbooks')
-      .select('id,title,summary,safety,steps,triggers,updated_at')
-      .contains('triggers', tlist.slice(0, 4)) // keep small to avoid DB scan
-      .order('updated_at', { ascending: false })
-      .limit(limit * 2);
 
-    if (!error && Array.isArray(data) && data.length) {
-      rows = data;
-      break;
-    }
-  }
-
-  // Fallback OR ilike if nothing yet
-  if (!rows.length) {
+  // ---- Text search in title/summary (ILIKE OR)
+  try {
     const ors = [];
-    for (const k of keywords.slice(0, 5)) {
-      const esc = k.replace(/%/g, '\\%').replace(/_/g, '\\_');
-      ors.push(`title.ilike.%${esc}%`, `summary.ilike.%${esc}%`, `safety.ilike.%${esc}%`);
+    for (const kw of kws.slice(0, 4)) {
+      const pat = `%${kw}%`;
+      ors.push(`title.ilike.${pat}`);
+      ors.push(`summary.ilike.${pat}`);
     }
-    const { data, error } = await supabase
-      .from('standards_playbooks')
-      .select('id,title,summary,safety,steps,triggers,updated_at')
-      .or(ors.join(','))
-      .order('updated_at', { ascending: false })
-      .limit(limit * 2);
+    if (ors.length) {
+      const { data, error } = await supabase
+        .from('standards_playbooks')
+        .select(selectCols)
+        .or(ors.join(','))
+        .limit(30);
+      if (!error && Array.isArray(data)) rows = rows.concat(data);
+    }
+  } catch {}
 
-    if (!error && Array.isArray(data) && data.length) {
-      rows = data;
-    }
+  // ---- Array contains on matchers / triggers for each kw
+  for (const kw of kws.slice(0, 4)) {
+    try {
+      const { data, error } = await supabase
+        .from('standards_playbooks')
+        .select(selectCols)
+        .contains('matchers', [kw])
+        .limit(20);
+      if (!error && Array.isArray(data)) rows = rows.concat(data);
+    } catch {}
+    try {
+      const { data, error } = await supabase
+        .from('standards_playbooks')
+        .select(selectCols)
+        .contains('triggers', [kw])
+        .limit(20);
+      if (!error && Array.isArray(data)) rows = rows.concat(data);
+    } catch {}
   }
 
-  // Score & rank
-  const ranked = rows
-    .map((pb) => ({ ...pb, score: scorePlaybook(pb, keywords) }))
-    .sort((a, b) => (b.score || 0) - (a.score || 0))
-    .slice(0, limit);
+  // ---- Dedup by id
+  const seen = new Set();
+  rows = rows.filter(r => r && r.id && !seen.has(r.id) && seen.add(r.id));
 
-  return ranked;
+  if (!rows.length) return [];
+
+  // ---- Score rows by keyword coverage
+  const lowerIncludes = (text, kw) => String(text || '').toLowerCase().includes(kw);
+  const scoreRow = (r) => {
+    let score = 0;
+    const title = String(r.title || '').toLowerCase();
+    const summary = String(r.summary || '').toLowerCase();
+    const matchers = Array.isArray(r.matchers) ? r.matchers : [];
+    const triggers = Array.isArray(r.triggers) ? r.triggers : [];
+
+    for (const kw of kws) {
+      if (title.includes(kw)) score += 3;
+      if (summary.includes(kw)) score += 1;
+      if (matchers.some(m => lowerIncludes(m, kw))) score += 4;
+      if (triggers.some(t => lowerIncludes(t, kw))) score += 3;
+    }
+    if (r.updated_at) score += 0.25; // mild recency nudge
+    return score;
+  };
+
+  const scored = rows
+    .map(r => ({ ...r, score: scoreRow(r) }))
+    .filter(r => r.score > 0)              // must match at least one kw
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(1, limit));
+
+  return scored;
 }
 
-/**
- * Render a playbook row to a clean, compact context block (markdown-ish).
- */
-export function formatPlaybookBlock(pb) {
-  if (!pb) return '';
-
-  const title = pb.title ? `**${clean(pb.title)}**` : '';
-  const summary = pb.summary ? clean(pb.summary) : '';
-  const safety = pb.safety ? clean(pb.safety) : '';
-
-  let steps = '';
-  if (Array.isArray(pb.steps) && pb.steps.length) {
-    steps = pb.steps
-      .map((s, i) => `${i + 1}. ${clean(typeof s === 'string' ? s : (s?.text || ''))}`)
-      .filter(Boolean)
-      .join('\n');
-  } else if (typeof pb.steps === 'string' && pb.steps.trim()) {
-    steps = pb.steps
-      .split(/\n+/)
-      .map((line, i) => `${i + 1}. ${clean(line)}`)
-      .join('\n');
-  }
-
-  const parts = [];
-  if (title) parts.push(title);
-  if (summary) parts.push(summary);
-  if (steps) parts.push(steps);
-  if (safety) {
-    const safebul = safety
-      .replace(/^\s*[-*•]\s*/gm, '')
-      .split(/\n+/)
-      .map((l) => `• ${clean(l)}`)
-      .join('\n');
-    parts.push(`**⚠️ Safety**\n${safebul}`);
-  }
-
-  return parts.filter(Boolean).join('\n\n');
-}
+export default { searchPlaybooks, formatPlaybookBlock, derivePlaybookKeywords };
