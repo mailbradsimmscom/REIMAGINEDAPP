@@ -11,7 +11,7 @@ const has = (hay, needle) => norm(hay).includes(norm(needle));
 export async function getBoatSystems() {
   if (!supabase) return { rows: [], error: 'no_supabase' };
   const { data, error } = await supabase
-    .from('boat_systems')
+    .from('boat_systems_compat')
     .select('id, category, brand, model, serial_number, installation_date, specifications, updated_at')
     .order('updated_at', { ascending: false });
 

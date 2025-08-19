@@ -103,7 +103,7 @@ export async function searchPlaybooks(question, { limit = 5 } = {}) {
     }
     if (ors.length) {
       const { data, error } = await supabase
-        .from('standards_playbooks')
+        .from('standards_playbooks_compat')
         .select(selectCols)
         .or(ors.join(','))
         .limit(30);
@@ -115,7 +115,7 @@ export async function searchPlaybooks(question, { limit = 5 } = {}) {
   for (const kw of kws.slice(0, 4)) {
     try {
       const { data, error } = await supabase
-        .from('standards_playbooks')
+        .from('standards_playbooks_compat')
         .select(selectCols)
         .contains('matchers', [kw])
         .limit(20);
@@ -123,7 +123,7 @@ export async function searchPlaybooks(question, { limit = 5 } = {}) {
     } catch {}
     try {
       const { data, error } = await supabase
-        .from('standards_playbooks')
+        .from('standards_playbooks_compat')
         .select(selectCols)
         .contains('triggers', [kw])
         .limit(20);
