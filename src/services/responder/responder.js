@@ -72,7 +72,7 @@ Here’s a concise answer based on your documents and retrieved matches.
 ${bullets.length ? '**Step-by-step**\n' + bullets.map((b,i)=>`${i+1}. ${b}`).join('\n') : ''}
 
 **What’s next**
-Want me to tailor this to your exact model (VC20/ZF variant, year, wiring layout)?
+Need further details or clarification?
 
 ${refs.length ? '**References**\n' + refs.join('\n') : ''}`.trim();
 
