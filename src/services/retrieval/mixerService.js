@@ -248,14 +248,16 @@ export async function buildContextMix({
       const threshold = Number(process.env.WORLD_SEARCH_PARTS_THRESHOLD) || 4;
       if (parts.length >= threshold) return;
 
-      const allowed = (meta.allow_domains || []).map(d => String(d).toLowerCase());
+      const allowDomains = meta.allow_domains.length
+        ? meta.allow_domains
+        : String(process.env.WORLD_ALLOWLIST || '').split(',');
+      const allowed = allowDomains.map(d => String(d).toLowerCase()).filter(Boolean);
       if (allowed.length === 0) return;
 
       try {
-        const { queries, brandTokens, modelTokens } = buildWQ(
-          {},
-          { allowDomains: allowed, keywords: meta.router_keywords }
-        );
+        const router = { allowDomains, keywords: meta.router_keywords };
+        const asset = {};
+        const { queries } = buildWQ(asset, router);
         if (!queries.length) return;
 
         const topKWorld = Math.max(1, Math.min(Number(process.env.WORLD_SEARCH_TOPK) || 2, 5));
@@ -267,29 +269,22 @@ export async function buildContextMix({
           return;
         }
 
-        const ranked = filterRank(results, {
-          brandTokens,
-          modelTokens,
-          allowDomains: allowed,
-          manualKeywords: meta.router_keywords,
-          topK: topKWorld
-        });
+        const ranked = filterRank(results, asset, router, process.env.WORLD_SEARCH_TOPK);
 
-        const seen = new Set();
+        const seenUrls = new Set();
         for (const r of ranked) {
           try {
             const urlObj = new URL(r.link);
             const host = urlObj.hostname.toLowerCase();
             if (allowed.length && !allowed.some(d => host === d || host.endsWith(`.${d}`))) continue;
+            if (seenUrls.has(r.link)) continue;
+            seenUrls.add(r.link);
 
             const chunks = await fetchChunk(r.link);
             let addedRef = false;
             for (const ch of chunks) {
               const txt = cleanChunk(ch?.text ?? ch);
               if (!txt) continue;
-              const key = txt.slice(0, 160);
-              if (seen.has(key)) continue;
-              seen.add(key);
               parts.push(txt);
               if (!addedRef) {
                 refs.push({ id: r.link, source: r.link, score: 0.2 });

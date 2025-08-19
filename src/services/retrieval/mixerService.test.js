@@ -18,9 +18,7 @@ function makeDeps(vectorCount, fetchFn) {
     formatPlaybookBlock: row => ({ id: row.id, source: 'pb' }),
     derivePlaybookKeywords: () => ['foo'],
     buildWorldQueries: () => ({
-      queries: ['q'],
-      brandTokens: [],
-      modelTokens: []
+      queries: ['q']
     }),
     serpapiSearch: async qs => {
       assert.deepEqual(qs, ['q']);
@@ -29,7 +27,7 @@ function makeDeps(vectorCount, fetchFn) {
         { link: 'https://other.com/b' }
       ];
     },
-    filterAndRank: (r, { topK }) => r.slice(0, topK),
+    filterAndRank: (items, asset, router, topK) => items.slice(0, Number(topK) || items.length),
     fetchAndChunk: fetchFn,
     aiService: { embed: async () => [0.1, 0.2, 0.3] },
     pineconeAdapter: {
