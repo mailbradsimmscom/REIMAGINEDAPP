@@ -1,13 +1,7 @@
+entrypoint = "index.js"
 run = "npm run dev"
-modules = ["nodejs-20"]
+language = "nodejs"
 
 [[ports]]
 localPort = 3000
 externalPort = 80
-
-[[ports]]
-localPort = 3001
-externalPort = 3001
-
-[nix]
-packages = ["lsof"]
