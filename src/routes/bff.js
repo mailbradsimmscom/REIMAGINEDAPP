@@ -6,6 +6,7 @@ import { buildContextMix, classifyQuestion } from '../services/retrieval/mixerSe
 import { cacheLookup } from '../services/cache/answerCacheService.js';
 import { persistConversation } from '../services/sql/persistenceService.js';
 import { ENV } from '../config/env.js';
+import { setTrace } from '../services/debug/traceStore.js';
 
 const router = Router();
 
@@ -30,6 +31,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
     let refs = [];
     let fromCache = false;
     let structured;
+    let retrievalMeta = null;
 
     // If explicit context is provided, skip cache & retrieval
     if (typeof context === 'string' || Array.isArray(context)) {
@@ -59,6 +61,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
         });
         contextText = mix.contextText || '';
         refs = Array.isArray(mix.references) ? mix.references : [];
+        retrievalMeta = mix.meta || null;
 
         structured = await composeResponse({
           question,
@@ -77,6 +80,11 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
           out._structured = structured;
           return out;
         })();
+
+    if (retrievalMeta && ENV.RETRIEVAL_TELEMETRY_ENABLED) {
+      setTrace(requestId, { question, meta: retrievalMeta });
+      payload._retrievalMeta = retrievalMeta;
+    }
 
     if (fromCache) {
       payload._cache = { hit: true };

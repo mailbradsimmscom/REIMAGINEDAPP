@@ -7,6 +7,7 @@ import {
   formatPlaybookBlock,
   derivePlaybookKeywords
 } from '../sql/playbookService.js';
+import { searchAssets } from '../sql/assetService.js';
 import {
   buildWorldQueries,
   serpapiSearch,
@@ -144,6 +145,7 @@ export async function buildContextMix({
   question, namespace, topK = 8, requestId, intent = 'generic'
 }, {
   searchPlaybooks: searchPB = searchPlaybooks,
+  searchAssets: searchAS = searchAssets,
   formatPlaybookBlock: formatPB = formatPlaybookBlock,
   derivePlaybookKeywords: deriveKW = derivePlaybookKeywords,
   buildWorldQueries: buildWQ = buildWorldQueries,
@@ -158,6 +160,8 @@ export async function buildContextMix({
     playbook_hit: false,
     sql_rows: 0,
     sql_selected: 0,
+    asset_rows: 0,
+    asset_selected: 0,
     vec_default_matches: 0,
     vec_world_matches: 0,
     pruned_default: 0,
@@ -172,8 +176,27 @@ export async function buildContextMix({
   const refs = [];
 
   const steps = {
+    async assetSearch() {
+      if (!ENV.RETRIEVAL_ASSET_ENABLED) return;
+      try {
+        if (!hints || hints.length === 0) return;
+        const assets = await searchAS(hints, { limit: 3 });
+        meta.asset_rows += assets.length;
+        for (const a of assets) {
+          const text = [
+            [a.manufacturer, a.model].filter(Boolean).join(' '),
+            a.description,
+            a.notes
+          ].filter(Boolean).join('. ');
+          if (text) parts.push(text);
+          refs.push({ id: a.id, source: a.source || 'asset', score: Math.min(0.8, (a.score || 1) / 10 + 0.6) });
+          meta.asset_selected += 1;
+        }
+      } catch (e) { meta.failures.push(`asset:${e.message}`); }
+    },
+
     async playbookSearch() {
-      if (!ENV.RETRIEVAL_SQL_ENABLED) return;
+      if (!ENV.RETRIEVAL_PLAYBOOK_ENABLED) return;
       try {
         // Only run when there are meaningful hints (prevents “match everything”)
         if (!hints || hints.length === 0) return;
@@ -245,7 +268,7 @@ export async function buildContextMix({
     },
 
     async worldSearch() {
-      if (!ENV.RETRIEVAL_WORLD_ENABLED) return;
+      if (!ENV.RETRIEVAL_WEB_ENABLED) return;
       const enabled = String(process.env.WORLD_SEARCH_ENABLED || '').toLowerCase();
       if (!['1', 'true', 'yes', 'on'].includes(enabled)) return;
 
