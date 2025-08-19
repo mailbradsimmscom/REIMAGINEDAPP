@@ -252,42 +252,52 @@ export async function buildContextMix({
       if (allowed.length === 0) return;
 
       try {
-        const queries = buildWQ(question);
+        const { queries, brandTokens, modelTokens } = buildWQ(
+          {},
+          { allowDomains: allowed, keywords: meta.router_keywords }
+        );
+        if (!queries.length) return;
+
         const topKWorld = Math.max(1, Math.min(Number(process.env.WORLD_SEARCH_TOPK) || 2, 5));
+        let results = [];
+        try {
+          results = await serpSearch(queries, { num: topKWorld * 2 });
+        } catch (e) {
+          meta.failures.push(`serpapi:${e.message}`);
+          return;
+        }
+
+        const ranked = filterRank(results, {
+          brandTokens,
+          modelTokens,
+          allowDomains: allowed,
+          manualKeywords: meta.router_keywords,
+          topK: topKWorld
+        });
+
         const seen = new Set();
-
-        for (const q of queries) {
-          let results = [];
+        for (const r of ranked) {
           try {
-            results = await serpSearch(q, { num: topKWorld * 2 });
-          } catch (e) {
-            meta.failures.push(`serpapi:${e.message}`);
-            continue;
-          }
-          const ranked = filterRank(results).slice(0, topKWorld);
-          for (const r of ranked) {
-            try {
-              const urlObj = new URL(r.link);
-              const host = urlObj.hostname.toLowerCase();
-              if (allowed.length && !allowed.some(d => host === d || host.endsWith(`.${d}`))) continue;
+            const urlObj = new URL(r.link);
+            const host = urlObj.hostname.toLowerCase();
+            if (allowed.length && !allowed.some(d => host === d || host.endsWith(`.${d}`))) continue;
 
-              const chunks = await fetchChunk(r.link);
-              let addedRef = false;
-              for (const ch of chunks) {
-                const txt = cleanChunk(ch);
-                if (!txt) continue;
-                const key = txt.slice(0, 160);
-                if (seen.has(key)) continue;
-                seen.add(key);
-                parts.push(txt);
-                if (!addedRef) {
-                  refs.push({ id: r.link, source: r.link, score: 0.2 });
-                  addedRef = true;
-                }
+            const chunks = await fetchChunk(r.link);
+            let addedRef = false;
+            for (const ch of chunks) {
+              const txt = cleanChunk(ch);
+              if (!txt) continue;
+              const key = txt.slice(0, 160);
+              if (seen.has(key)) continue;
+              seen.add(key);
+              parts.push(txt);
+              if (!addedRef) {
+                refs.push({ id: r.link, source: r.link, score: 0.2 });
+                addedRef = true;
               }
-            } catch (err) {
-              meta.failures.push(`worldFetch:${err.message}`);
             }
+          } catch (err) {
+            meta.failures.push(`worldFetch:${err.message}`);
           }
         }
       } catch (e) {
