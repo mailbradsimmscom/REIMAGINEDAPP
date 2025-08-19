@@ -13,8 +13,7 @@ export async function getCachedAnswer(intentKey) {
 
 export async function insertCachedAnswer(entry) {
   if (!supabase) return { ok: false };
-  const { boat_profile_id, ...rest } = entry || {};
-  const { error } = await supabase.from("answers_cache").insert([rest]);
+  const { error } = await supabase.from("answers_cache").insert([entry || {}]);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
