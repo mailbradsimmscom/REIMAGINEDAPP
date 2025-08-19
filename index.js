@@ -50,19 +50,8 @@ app.use((req, res, next) => {
 // --- error handler
 app.use(errorHandler);
 
-// --- resilient listen (auto-bumps port if busy)
-const PORT = process.env.PORT || 3000;
-(function start(p) {
-  const srv = app.listen(p, () => {
-    console.log(`[server] listening on http://localhost:${p}`);
-  });
-  srv.on('error', (err) => {
-    if (err && err.code === 'EADDRINUSE') {
-      const next = (Number(p) || 3000) + 1;
-      console.warn(`[server] port ${p} in use, retrying on ${next}…`);
-      start(next);
-    } else {
-      throw err;
-    }
-  });
-})(PORT);
+// --- listen on fixed port 3000
+const PORT = 3000;
+app.listen(PORT, () => {
+  console.log(`[server] listening on http://localhost:${PORT}`);
+});
