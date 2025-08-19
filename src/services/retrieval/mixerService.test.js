@@ -7,9 +7,13 @@ process.env.SERPAPI_API_KEY = 'test-serp';
 process.env.SUPABASE_URL = 'http://localhost';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'svc_key';
 process.env.OPENAI_API_KEY = 'openai_key';
+process.env.RETRIEVAL_ASSET_ENABLED = '1';
+process.env.RETRIEVAL_PLAYBOOK_ENABLED = '1';
+process.env.RETRIEVAL_WEB_ENABLED = '1';
 
 function makeDeps(vectorCount, fetchFn) {
   return {
+    searchAssets: async () => [],
     searchPlaybooks: async () => [{
       id: 'pb1',
       title: 'PB',
@@ -125,4 +129,16 @@ test('worldSearch can be disabled via env toggle', async () => {
 
   assert.equal(called, false);
   assert.ok(!res.contextText.includes('world data'));
+});
+
+test('assetSearch contributes context and references', async () => {
+  process.env.RETRIEVAL_ASSET_ENABLED = '1';
+  const deps = makeDeps(0, async () => []);
+  deps.searchAssets = async () => [{
+    id: 'a1', manufacturer: 'Acme', model: 'Turbo', description: 'desc', notes: 'note', score: 10, source: 'asset'
+  }];
+  const { buildContextMix } = await import('./mixerService.js');
+  const res = await buildContextMix({ question: 'foo question', namespace: 'x' }, deps);
+  assert.match(res.contextText, /desc/);
+  assert.ok(res.references.some(r => r.id === 'a1'));
 });
