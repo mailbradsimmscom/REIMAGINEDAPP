@@ -77,17 +77,24 @@ function escapeRegex(str) {
 }
 
 export function filterAndRank(results = [], asset = {}, router = {}, topK = 5) {
-  const { brand = '', model = '' } = asset || {};
+  const { brand = '', model = '', spec = '' } = asset || {};
   const { allowDomains = [], keywords = [] } = router || {};
 
-  const brandTokens = tokenize(brand);
-  const modelTokens = tokenize(model);
+  const tokens = [
+    ...tokenize(brand),
+    ...tokenize(model),
+    ...tokenize(spec),
+    ...keywords.map(k => String(k).toLowerCase())
+  ];
 
   const allow = allowDomains.map(d => String(d).toLowerCase());
-  const manual = keywords.map(k => String(k).toLowerCase());
 
   function hostname(url) {
-    try { return new URL(url).hostname.toLowerCase(); } catch { return ''; }
+    try {
+      return new URL(url).hostname.toLowerCase();
+    } catch {
+      return '';
+    }
   }
 
   const seen = new Set();
@@ -98,24 +105,17 @@ export function filterAndRank(results = [], asset = {}, router = {}, topK = 5) {
     seen.add(link);
 
     const host = hostname(link);
-    if (allow.length && host && !allow.some(d => host === d || host.endsWith(`.${d}`))) {
-      continue;
-    }
-
     const text = `${r.title || ''} ${r.snippet || ''} ${link}`.toLowerCase();
     let score = 0;
 
-    for (const t of brandTokens) {
-      if (new RegExp(`\\b${escapeRegex(t)}\\b`, 'i').test(text)) score += 2;
-    }
-    for (const t of modelTokens) {
-      if (new RegExp(`\\b${escapeRegex(t)}\\b`, 'i').test(text)) score += 2;
-    }
-    for (const k of manual) {
-      if (text.includes(k)) score += 1;
+    if (allow.length && host && allow.some(d => host === d || host.endsWith(`.${d}`))) {
+      score += 5;
     }
     if (/\.pdf($|\?)/i.test(link)) score += 2;
     if (/\.docx?($|\?)/i.test(link)) score += 1;
+    for (const t of tokens) {
+      if (t && text.includes(t)) score += 1;
+    }
 
     scored.push({
       title: r.title,
