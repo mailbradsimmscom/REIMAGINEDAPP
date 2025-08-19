@@ -8,7 +8,6 @@ import { sanitizeMetadata } from '../vector/meta.js';
 
 export async function ingestText({
   id,
-  boat_id,
   system_id,
   knowledge_type,
   title,
@@ -26,7 +25,6 @@ export async function ingestText({
   // 1) Supabase truth
   const row = await upsertDoc({
     id: docId,
-    boat_id,
     system_id,
     knowledge_type,
     title,
@@ -49,7 +47,6 @@ export async function ingestText({
       title,
       text: chunks[idx]
     };
-    if (boat_id)  meta.boatId = boat_id;
     if (system_id) meta.systemId = system_id;
     if (source)   meta.source = source;
 

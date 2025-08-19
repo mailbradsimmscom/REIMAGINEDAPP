@@ -3,11 +3,12 @@ import { supabase } from '../config/supabase.js';
 
 /** === Reads (you already had listDocuments/listTopics) === */
 
-export async function listDocuments(boatId) {
+export async function listDocuments() {
   if (!supabase) return [];
-  let q = supabase.from('system_knowledge').select('*').order('updated_at', { ascending: false });
-  if (boatId) q = q.eq('boat_id', boatId);
-  const { data, error } = await q;
+  const { data, error } = await supabase
+    .from('system_knowledge')
+    .select('*')
+    .order('updated_at', { ascending: false });
   if (error) throw new Error(error.message);
   return data || [];
 }
@@ -32,8 +33,8 @@ export async function getDoc(id) {
 
 /** === Mutations we need for ingest/update/delete === */
 
-export async function upsertDoc({ id, boat_id, system_id, knowledge_type, title, content, source, tags, version }) {
-  const row = { id, boat_id, system_id, knowledge_type, title, content, source, tags, version, deleted_at: null };
+export async function upsertDoc({ id, system_id, knowledge_type, title, content, source, tags, version }) {
+  const row = { id, system_id, knowledge_type, title, content, source, tags, version, deleted_at: null };
   const { data, error } = await supabase.from('system_knowledge').upsert(row).select().single();
   if (error) throw new Error(error.message);
   return data;

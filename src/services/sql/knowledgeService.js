@@ -127,7 +127,7 @@ export async function getSystemKnowledgeSnippets({ focusSystem, question, linesM
 
   let q = supabase
     .from('system_knowledge')
-    .select('id, boat_id, system_id, knowledge_type, title, content, source, updated_at')
+    .select('id, system_id, knowledge_type, title, content, source, updated_at')
     .order('updated_at', { ascending: false });
 
   if (focusSystem?.id) q = q.eq('system_id', focusSystem.id);
