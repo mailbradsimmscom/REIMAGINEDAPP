@@ -285,7 +285,7 @@ export async function buildContextMix({
             const chunks = await fetchChunk(r.link);
             let addedRef = false;
             for (const ch of chunks) {
-              const txt = cleanChunk(ch);
+              const txt = cleanChunk(ch?.text ?? ch);
               if (!txt) continue;
               const key = txt.slice(0, 160);
               if (seen.has(key)) continue;
