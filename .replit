@@ -8,11 +8,15 @@ requiredFiles = [".replit", "replit.nix", "package.json", "package-lock.json"]
 [nix]
 channel = "stable-24_11"
 
+# What the Run button does in the workspace
+run = ["bash","-lc","export PORT=3000; npx -y kill-port 3000 >/dev/null 2>&1 || true; node index.js"]
+
 [deployment]
-run = ["node", "index.js"]
+run = ["bash","-lc","export PORT=3000; node index.js"]
 deploymentTarget = "autoscale"
 ignorePorts = false
 
+# Only expose port 3000
 [[ports]]
-localPort = 3001
-externalPort = 80
+localPort = 3000
+externalPort = 3000
