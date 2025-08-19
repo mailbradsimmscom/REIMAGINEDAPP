@@ -1,12 +1,11 @@
 import supabase from "../config/supabase.js";
 
-export async function getCachedAnswer(intentKey, boatProfileId) {
+export async function getCachedAnswer(intentKey) {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("answers_cache")
     .select("*")
     .eq("intent_key", intentKey)
-    .eq("boat_profile_id", boatProfileId)
     .maybeSingle();
   if (error) throw error;
   return data;
@@ -14,7 +13,8 @@ export async function getCachedAnswer(intentKey, boatProfileId) {
 
 export async function insertCachedAnswer(entry) {
   if (!supabase) return { ok: false };
-  const { error } = await supabase.from("answers_cache").insert([entry]);
+  const { boat_profile_id, ...rest } = entry || {};
+  const { error } = await supabase.from("answers_cache").insert([rest]);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }

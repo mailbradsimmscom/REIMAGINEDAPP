@@ -1,7 +1,6 @@
 // src/services/cache/answerCacheService.js
 import supabase from '../../config/supabase.js';
 import { createHash } from 'node:crypto';
-import { embedText } from '../ai/aiService.js';
 
 /**
  * Normalize the question so semantically equivalent strings hash the same.
@@ -23,15 +22,14 @@ function shortHash(s) {
 
 /**
  * Compute the semantic intent key used in answers_cache.intent_key.
- * Intent key includes model + optional boat + short hash of the normalized text.
+ * Intent key includes the embedding model + short hash of the normalized text.
  */
-function computeIntentKey({ question, boatId }) {
+function computeIntentKey({ question }) {
   const model = process.env.EMBEDDING_MODEL || 'text-embedding-3-large';
   const normalized = normalizeQuestion(question || '');
   // For future: could include a projection of the embedding to avoid near-duplicate collisions
   const h = shortHash(normalized);
-  const boatPart = boatId ? String(boatId) : 'none';
-  return `sem:${model}:${boatPart}:${h}`;
+  return `sem:${model}:${h}`;
 }
 
 /**
@@ -43,18 +41,18 @@ function ttlHours() {
 }
 
 /**
- * Lookup an answer in answers_cache by semantic key (and boat if provided).
+ * Lookup an answer in answers_cache by semantic key.
  * Soft-fails to {hit:false} if Supabase is unavailable.
  */
-export async function cacheLookup({ question, boatId = null }) {
+export async function cacheLookup({ question }) {
   if (!supabase) return { hit: false, reason: 'no_supabase' };
 
   try {
-    const intentKey = computeIntentKey({ question, boatId });
+    const intentKey = computeIntentKey({ question });
 
     const { data, error } = await supabase
       .from('answers_cache')
-      .select('id, intent_key, boat_profile_id, answer_text, evidence_ids, created_at, expires_at')
+      .select('id, intent_key, answer_text, evidence_ids, created_at, expires_at')
       .eq('intent_key', intentKey)
       .maybeSingle();
 
@@ -110,11 +108,11 @@ export async function cacheLookup({ question, boatId = null }) {
  * `structuredAnswer` should be the full structured payload we return to clients.
  * `references` is an array of {id,source,score} (stored into evidence_ids).
  */
-export async function cacheStore({ question, boatId = null, structuredAnswer, references = [] }) {
+export async function cacheStore({ question, structuredAnswer, references = [] }) {
   if (!supabase) return { ok: false, reason: 'no_supabase' };
 
   try {
-    const intentKey = computeIntentKey({ question, boatId });
+    const intentKey = computeIntentKey({ question });
     const now = Date.now();
     const expiresAt = new Date(now + ttlHours() * 3600 * 1000).toISOString();
 
@@ -130,15 +128,14 @@ export async function cacheStore({ question, boatId = null, structuredAnswer, re
       .upsert(
         {
           intent_key: intentKey,
-          boat_profile_id: boatId || null,
           answer_text,
           evidence_ids,
           created_at: new Date(now).toISOString(),
           expires_at: expiresAt
         },
         {
-          // MUST match the DB unique index (intent_key, boat_profile_id)
-          onConflict: 'intent_key,boat_profile_id'
+          // MUST match the DB unique index (intent_key)
+          onConflict: 'intent_key'
         }
       );
 
@@ -161,8 +158,8 @@ export async function cacheStore({ question, boatId = null, structuredAnswer, re
 /**
  * Expose a helper to compute the semantic key externally (debug/admin use).
  */
-export function computeCacheKeyPreview({ question, boatId = null }) {
-  return computeIntentKey({ question, boatId });
+export function computeCacheKeyPreview({ question }) {
+  return computeIntentKey({ question });
 }
 
 export default { cacheLookup, cacheStore, computeCacheKeyPreview };

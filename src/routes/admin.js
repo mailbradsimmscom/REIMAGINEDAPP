@@ -45,7 +45,7 @@ router.get('/cache', async (req, res) => {
   try {
     const { data, error, count } = await supabase
       .from('answers_cache')
-      .select('id,intent_key,boat_profile_id,created_at,expires_at,evidence_ids', { count: 'exact' })
+      .select('id,intent_key,created_at,expires_at,evidence_ids', { count: 'exact' })
       .order('created_at', { ascending: false })
       .limit(limit);
 
