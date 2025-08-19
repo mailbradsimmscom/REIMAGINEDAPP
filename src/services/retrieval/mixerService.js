@@ -1,6 +1,7 @@
 // src/services/retrieval/mixerService.js
 import { pineconeAdapter as pinecone } from '../vector/pineconeAdapter.js';
 import * as ai from '../ai/aiService.js';
+import { ENV } from '../../config/env.js';
 import {
   searchPlaybooks,
   formatPlaybookBlock,
@@ -172,6 +173,7 @@ export async function buildContextMix({
 
   const steps = {
     async playbookSearch() {
+      if (!ENV.RETRIEVAL_SQL_ENABLED) return;
       try {
         // Only run when there are meaningful hints (prevents “match everything”)
         if (!hints || hints.length === 0) return;
@@ -216,6 +218,7 @@ export async function buildContextMix({
     },
 
     async vectorSearch() {
+      if (!ENV.RETRIEVAL_VECTOR_ENABLED) return;
       let defaultMatches = [];
       let worldMatches = [];
       try {
@@ -242,6 +245,7 @@ export async function buildContextMix({
     },
 
     async worldSearch() {
+      if (!ENV.RETRIEVAL_WORLD_ENABLED) return;
       const enabled = String(process.env.WORLD_SEARCH_ENABLED || '').toLowerCase();
       if (!['1', 'true', 'yes', 'on'].includes(enabled)) return;
 
