@@ -10,14 +10,18 @@ function tokenize(str) {
 }
 
 export function buildWorldQueries(asset = {}, router = {}) {
-  const { brand = '', model = '', spec = '' } = asset || {};
-  const { keywords = [], allowDomains = [] } = router || {};
+  const { manufacturer = '', model = '', model_key = '' } = asset || {};
+  const {
+    keywords = [],
+    allowDomains = [],
+    intentKeywords = []
+  } = router || {};
 
-  const brandTokens = tokenize(brand);
+  const manufacturerTokens = tokenize(manufacturer);
   const modelTokens = tokenize(model);
-  const specTokens = tokenize(spec);
+  const modelKeyTokens = tokenize(model_key);
 
-  const baseTokens = [...brandTokens, ...modelTokens, ...specTokens];
+  const baseTokens = [...manufacturerTokens, ...modelTokens, ...modelKeyTokens];
   if (!baseTokens.length) {
     return { queries: [] };
   }
@@ -28,13 +32,14 @@ export function buildWorldQueries(asset = {}, router = {}) {
     .join(' OR ');
 
   const queries = [];
-  const baseQuery = domainFilter ? `${base} ${domainFilter}` : base;
-  queries.push(baseQuery.trim());
+  const baseTerms = [base, ...intentKeywords].filter(Boolean).join(' ');
+  const baseQuery = domainFilter ? `${baseTerms} ${domainFilter}` : baseTerms;
+  if (baseQuery.trim()) queries.push(baseQuery.trim());
 
-  for (const kw of keywords) {
-    const q = domainFilter
-      ? `${base} ${kw} ${domainFilter}`
-      : `${base} ${kw}`;
+  const extraKeywords = keywords || [];
+  for (const kw of extraKeywords) {
+    const terms = [base, kw, ...intentKeywords].filter(Boolean).join(' ');
+    const q = domainFilter ? `${terms} ${domainFilter}` : terms;
     const trimmed = q.trim();
     if (trimmed && !queries.includes(trimmed)) queries.push(trimmed);
   }
@@ -77,17 +82,27 @@ function escapeRegex(str) {
 }
 
 export function filterAndRank(results = [], asset = {}, router = {}, topK = 5) {
-  const { brand = '', model = '', spec = '' } = asset || {};
-  const { allowDomains = [], keywords = [] } = router || {};
+  const { manufacturer = '', model = '', model_key = '' } = asset || {};
+  const {
+    allowDomains = [],
+    keywords = [],
+    intentKeywords = []
+  } = router || {};
 
   const tokens = [
-    ...tokenize(brand),
+    ...tokenize(manufacturer),
     ...tokenize(model),
-    ...tokenize(spec),
-    ...keywords.map(k => String(k).toLowerCase())
+    ...tokenize(model_key),
+    ...keywords.map(k => String(k).toLowerCase()),
+    ...intentKeywords.map(k => String(k).toLowerCase())
   ];
 
-  const allow = allowDomains.map(d => String(d).toLowerCase());
+  const envAllow = String(process.env.WORLD_ALLOWLIST || '')
+    .split(',')
+    .map(d => d.toLowerCase())
+    .filter(Boolean);
+  const allow = (allowDomains.length ? allowDomains : envAllow)
+    .map(d => String(d).toLowerCase());
 
   function hostname(url) {
     try {
@@ -105,6 +120,10 @@ export function filterAndRank(results = [], asset = {}, router = {}, topK = 5) {
     seen.add(link);
 
     const host = hostname(link);
+    if (allow.length && host && !allow.some(d => host === d || host.endsWith(`.${d}`))) {
+      continue;
+    }
+
     const text = `${r.title || ''} ${r.snippet || ''} ${link}`.toLowerCase();
     let score = 0;
 
@@ -121,12 +140,11 @@ export function filterAndRank(results = [], asset = {}, router = {}, topK = 5) {
       title: r.title,
       link,
       snippet: r.snippet || r.snippet_highlighted || '',
-      score
+      trust: score
     });
   }
 
   return scored
-    .sort((a, b) => (b.score || 0) - (a.score || 0))
-    .slice(0, topK)
-    .map(({ score, ...rest }) => rest);
+    .sort((a, b) => (b.trust || 0) - (a.trust || 0))
+    .slice(0, topK);
 }

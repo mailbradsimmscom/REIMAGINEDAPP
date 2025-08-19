@@ -4,6 +4,9 @@ import assert from 'node:assert/strict';
 process.env.PINECONE_INDEX = 'test-index';
 process.env.PINECONE_NAMESPACE = 'test-ns';
 process.env.SERPAPI_API_KEY = 'test-serp';
+process.env.SUPABASE_URL = 'http://localhost';
+process.env.SUPABASE_SERVICE_ROLE_KEY = 'svc_key';
+process.env.OPENAI_API_KEY = 'openai_key';
 
 function makeDeps(vectorCount, fetchFn) {
   return {
