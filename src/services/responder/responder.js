@@ -93,7 +93,28 @@ ${refs.length ? '**References**\n' + refs.join('\n') : ''}`.trim();
  * - Tries model-generated answer with persona + policy.
  * - If empty or error, falls back to synthesized answer from context.
  */
-export async function composeResponse({ question, contextText, references = [], tone }) {
+function filterUsedReferences(text = '', refs = []) {
+  const used = [];
+  const body = String(text || '');
+  for (const r of Array.isArray(refs) ? refs : []) {
+    const id = r?.id || r?.source;
+    if (!id) continue;
+    if (!body.includes(String(id))) continue;
+    if (used.some(u => u.id === r.id || u.source === r.source)) continue;
+    used.push(r);
+  }
+  return used;
+}
+
+export async function composeResponse({
+  question,
+  contextText,
+  references = [],
+  tone,
+  assets = [],
+  playbooks = [],
+  webSnippets = []
+}) {
   const persona = loadPersona();
   const policy = loadPolicy();
 
@@ -106,14 +127,23 @@ export async function composeResponse({ question, contextText, references = [], 
 
   // Build a single prompt that includes the policy as explicit instruction
   const system = `${persona}\n\n${policy}`;
-  const user = `Question: ${question}\n\nContext:\n${contextText || ''}\n\nReturn: JSON with {title, summary, bullets?, cta?, raw:{text, references[]}}.`;
+  const resources = {
+    assets: Array.isArray(assets) ? assets.slice(0, 2) : [],
+    playbooks: Array.isArray(playbooks) ? playbooks.slice(0, 2) : [],
+    web: Array.isArray(webSnippets) ? webSnippets.slice(0, 2) : []
+  };
+  const user = `Question: ${question}\n\nResources:\n${JSON.stringify(resources)}\n\nContext:\n${contextText || ''}\n\nReturn: JSON with {title, summary, bullets?, cta?, raw:{text, references[]}}.`;
 
   try {
     if (typeof gen === 'function') {
       const out = await gen({ system, user, references, tone });
       const rawText = clean(out?.raw?.text || '');
       if (rawText) {
-        // ensure we always deliver cleaned + references
+        const combined = [
+          ...(Array.isArray(out?.raw?.references) ? out.raw.references : []),
+          ...(Array.isArray(references) ? references : [])
+        ];
+        const finalRefs = filterUsedReferences(rawText, combined).slice(0, 12);
         return {
           title: out.title || 'Answer',
           summary: out.summary || '',
@@ -121,7 +151,7 @@ export async function composeResponse({ question, contextText, references = [], 
           cta: out.cta ?? null,
           raw: {
             text: rawText,
-            references: Array.isArray(out?.raw?.references) ? out.raw.references.slice(0, 12) : references.slice(0, 12)
+            references: finalRefs
           }
         };
       }
@@ -137,7 +167,9 @@ export async function composeResponse({ question, contextText, references = [], 
   }
 
   // Fallback: synthesize from context so the UI never gets an empty body
-  return synthesizeFromContext({ question, contextText, references });
+  const synth = synthesizeFromContext({ question, contextText, references });
+  synth.raw.references = filterUsedReferences(synth.raw.text, synth.raw.references).slice(0, 12);
+  return synth;
 }
 
 export default { composeResponse };

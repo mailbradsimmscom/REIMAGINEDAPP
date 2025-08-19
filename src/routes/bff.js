@@ -67,7 +67,10 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
           question,
           contextText,
           references: refs,
-          tone
+          tone,
+          assets: Array.isArray(mix.assets) ? mix.assets : [],
+          playbooks: Array.isArray(mix.playbooks) ? mix.playbooks : [],
+          webSnippets: Array.isArray(mix.webSnippets) ? mix.webSnippets : []
         });
       }
     }

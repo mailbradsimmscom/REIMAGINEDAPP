@@ -66,6 +66,7 @@ test('worldSearch fetches allowed domain when parts below threshold', async () =
   assert.equal(fetchCalledWith, 'https://allowed.com/a');
   assert.match(res.contextText, /world data/);
   assert.ok(res.references.some(r => r.source === 'https://allowed.com/a'));
+  assert.ok(res.webSnippets.some(s => s.url === 'https://allowed.com/a'));
   assert.ok(!res.contextText.includes('hidden step'));
 });
 
@@ -95,6 +96,7 @@ test('worldSearch uses WORLD_ALLOWLIST when no playbook domains', async () => {
   assert.equal(fetchCalledWith, 'https://allowed.com/a');
   assert.match(res.contextText, /world data/);
   assert.ok(res.references.some(r => r.source === 'https://allowed.com/a'));
+  assert.ok(res.webSnippets.some(s => s.url === 'https://allowed.com/a'));
   assert.ok(!res.contextText.includes('hidden step'));
 });
 
@@ -113,6 +115,7 @@ test('worldSearch skipped when parts exceed threshold', async () => {
   assert.equal(res.meta.pruned_default, 3);
   assert.equal(called, false);
   assert.ok(!res.contextText.includes('world data'));
+  assert.equal(res.webSnippets.length, 0);
 });
 
 test('worldSearch can be disabled via env toggle', async () => {
@@ -129,6 +132,7 @@ test('worldSearch can be disabled via env toggle', async () => {
 
   assert.equal(called, false);
   assert.ok(!res.contextText.includes('world data'));
+  assert.equal(res.webSnippets.length, 0);
 });
 
 test('assetSearch contributes context and references', async () => {
@@ -141,4 +145,5 @@ test('assetSearch contributes context and references', async () => {
   const res = await buildContextMix({ question: 'foo question', namespace: 'x' }, deps);
   assert.match(res.contextText, /desc/);
   assert.ok(res.references.some(r => r.id === 'a1'));
+  assert.ok(res.assets.some(a => a.id === 'a1'));
 });
