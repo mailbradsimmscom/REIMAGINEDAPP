@@ -51,7 +51,7 @@ test('worldSearch fetches allowed domain when parts below threshold', async () =
   let fetchCalledWith = null;
   const deps = makeDeps(1, async url => {
     fetchCalledWith = url;
-    return [{ text: 'world data', metadata: { url, source: 'oem' } }];
+    return [{ text: 'world data', url, source: 'oem' }];
   });
   const { buildContextMix } = await import('./mixerService.js');
   const res = await buildContextMix({ question: 'foo question', namespace: 'x' }, deps);
@@ -70,7 +70,7 @@ test('worldSearch uses WORLD_ALLOWLIST when no playbook domains', async () => {
   let fetchCalledWith = null;
   const deps = makeDeps(1, async url => {
     fetchCalledWith = url;
-    return [{ text: 'world data', metadata: { url, source: 'oem' } }];
+    return [{ text: 'world data', url, source: 'oem' }];
   });
   deps.searchPlaybooks = async () => [{
     id: 'pb1',
@@ -98,7 +98,7 @@ test('worldSearch skipped when parts exceed threshold', async () => {
   let called = false;
   const deps = makeDeps(3, async () => {
     called = true;
-    return [{ text: 'world data', metadata: { url: 'x', source: 'oem' } }];
+    return [{ text: 'world data', url: 'x', source: 'oem' }];
   });
   const { buildContextMix } = await import('./mixerService.js');
   const res = await buildContextMix({ question: 'foo question', namespace: 'x' }, deps);
@@ -115,7 +115,7 @@ test('worldSearch can be disabled via env toggle', async () => {
   let called = false;
   const deps = makeDeps(1, async () => {
     called = true;
-    return [{ text: 'world data', metadata: { url: 'x', source: 'oem' } }];
+    return [{ text: 'world data', url: 'x', source: 'oem' }];
   });
   const { buildContextMix } = await import('./mixerService.js');
   const res = await buildContextMix({ question: 'foo question', namespace: 'x' }, deps);

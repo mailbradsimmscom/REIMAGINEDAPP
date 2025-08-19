@@ -17,8 +17,8 @@ export async function fetchText(url) {
   return { text: $('body').text(), source: 'oem' };
 }
 
-export async function fetchAndChunk(url, maxChars, overlap) {
+export async function fetchAndChunk(url, maxChunk, overlap) {
   const { text, source } = await fetchText(url);
-  const chunks = chunkText(text, maxChars, overlap);
-  return chunks.map(t => ({ text: t, metadata: { url, source } }));
+  const chunks = chunkText(text, maxChunk, overlap);
+  return chunks.map(t => ({ text: t, url, source }));
 }
