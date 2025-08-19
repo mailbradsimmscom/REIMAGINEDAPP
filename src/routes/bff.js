@@ -27,7 +27,6 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
 
     let contextText = '';
     let refs = [];
-    let mixMeta = null;
     let fromCache = false;
     let structured;
 
@@ -59,7 +58,6 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
         });
         contextText = mix.contextText || '';
         refs = Array.isArray(mix.references) ? mix.references : [];
-        mixMeta = mix.meta || null;
 
         structured = await composeResponse({
           question,
@@ -79,9 +77,6 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
           return out;
         })();
 
-    if (process.env.DEBUG_SEARCH === 'true' && client === 'api' && mixMeta) {
-      payload._retrieval = mixMeta;
-    }
     if (fromCache) {
       payload._cache = { hit: true };
     }
@@ -135,7 +130,7 @@ router.post('/ios/query', async (req, res) => {
   await handleQuery(req, res, { client: 'ios' });
 });
 
-// API (verbose; includes optional _retrieval when DEBUG_SEARCH=true)
+// API (verbose)
 router.post('/api/query', async (req, res) => {
   await handleQuery(req, res, { client: 'api' });
 });
