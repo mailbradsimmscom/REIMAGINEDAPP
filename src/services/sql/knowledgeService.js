@@ -56,7 +56,7 @@ export async function getPlaybookSnippets({ question, focusSystem, linesMax = 4 
   if (!supabase) return { lines: [], refs: [], meta: { sql_offline: true } };
 
   const { data, error } = await supabase
-    .from('standards_playbooks')
+    .from('standards_playbooks_compat')
     .select('id, archetype_key, title, summary, triggers, steps, matchers, ref_urls, updated_at')
     .order('updated_at', { ascending: false });
 
@@ -96,7 +96,7 @@ export async function getPlaybookSnippets({ question, focusSystem, linesMax = 4 
       const s = pb.summary.trim();
       if (s) {
         lines.push(s);
-        refs.push({ origin: 'playbook', id: pb.id, source: 'standards_playbooks', text: s, score: 1.0 });
+        refs.push({ origin: 'playbook', id: pb.id, source: 'standards_playbooks_compat', text: s, score: 1.0 });
       }
     }
 
@@ -109,7 +109,7 @@ export async function getPlaybookSnippets({ question, focusSystem, linesMax = 4 
       if (text && text.trim()) {
         const t = text.trim();
         lines.push(t);
-        refs.push({ origin: 'playbook', id: pb.id, source: 'standards_playbooks', text: t, score: 0.9 });
+        refs.push({ origin: 'playbook', id: pb.id, source: 'standards_playbooks_compat', text: t, score: 0.9 });
       }
     }
   }

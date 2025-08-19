@@ -19,9 +19,9 @@ router.get('/supabase', async (_req, res) => {
     return res.json({ ok: false, health: { ok: false, error: 'No Supabase client' }, summary: null, error: 'No Supabase client' });
   }
   try {
-    // Tiny probe: count(standards_playbooks) may be restricted by RLS; fall back to a simple select limit 1
+    // Tiny probe: count(standards_playbooks_compat) may be restricted by RLS; fall back to a simple select limit 1
     const { data, error } = await supabase
-      .from('standards_playbooks')
+      .from('standards_playbooks_compat')
       .select('id')
       .limit(1);
 

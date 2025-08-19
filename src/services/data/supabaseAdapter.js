@@ -138,7 +138,7 @@ async function adminSummary() {
       ['boat_systems', 'boat_systems'],
       ['boat_conversations', 'boat_conversations'],
       ['answers_cache', 'answers_cache'],
-      ['standards_playbooks', 'standards_playbooks'],
+      ['standards_playbooks_compat', 'standards_playbooks_compat'],
       ['world_cache', 'world_cache']
     ]) {
       const { count, error } = await sb.from(tbl).select('*', { count: 'exact', head: true });
