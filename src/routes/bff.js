@@ -2,7 +2,8 @@
 import { Router } from 'express';
 import { composeResponse } from '../services/responder/responder.js';
 import { webSerializer, apiSerializer } from '../views/serializers.js';
-import { buildContextMix, classifyQuestion } from '../services/retrieval/mixerService.js';
+import { classifyQuestion } from '../services/retrieval/mixerService.js';
+import { runRetrieval } from '../services/retrieval/orchestrator.js';
 import { cacheLookup } from '../services/cache/answerCacheService.js';
 import { persistConversation } from '../services/sql/persistenceService.js';
 import { ENV } from '../config/env.js';
@@ -150,7 +151,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
         // 3) Legacy retrieval path (unchanged) — runs if FTS is disabled or failed
         if (!structured) {
           const intent = clientIntent || await classifyQuestion(question);
-          const mix = await buildContextMix({
+          const mix = await runRetrieval({
             question,
             namespace,
             topK,
@@ -159,7 +160,7 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
           });
           contextText = mix.contextText || '';
           refs = Array.isArray(mix.references) ? mix.references : [];
-          retrievalMeta = mix.meta || retrievalMeta;
+          retrievalMeta = mix.meta || null;
           retrieval.assets = Array.isArray(mix.assets) ? mix.assets.length : retrieval.assets;
           retrieval.playbooks = Array.isArray(mix.playbooks) ? mix.playbooks.length : retrieval.playbooks;
           retrieval.web = Array.isArray(mix.webSnippets) ? mix.webSnippets.length : retrieval.web;

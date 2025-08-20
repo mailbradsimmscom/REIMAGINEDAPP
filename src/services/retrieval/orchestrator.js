@@ -15,7 +15,7 @@ import { buildContextMix } from './mixerService.js';
  * @param {number} [opts.limit=3]
  * @returns {Promise<object>} retrieval result object
  */
-export async function retrievalOrchestrator(question = '', { limit = 3 } = {}) {
+export async function runRetrieval(question = '', { limit = 3 } = {}) {
   const tokens = tokensFromQuestion(question);
   const fts = orQuery(tokens);
   const meta = {
@@ -80,5 +80,6 @@ export async function retrievalOrchestrator(question = '', { limit = 3 } = {}) {
   return { contextText, references, assets, playbooks, webSnippets: [], meta };
 }
 
-export default retrievalOrchestrator;
+export { runRetrieval as retrievalOrchestrator };
+export default runRetrieval;
 
