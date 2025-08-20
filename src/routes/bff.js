@@ -189,6 +189,9 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
           return out;
         })();
 
+    payload.assets = Array.isArray(structured?.assets) ? structured.assets : [];
+    payload.playbooks = Array.isArray(structured?.playbooks) ? structured.playbooks : [];
+
     if (retrievalMeta && ENV.RETRIEVAL_TELEMETRY_ENABLED) {
       setTrace(requestId, { question, meta: retrievalMeta });
       payload._retrievalMeta = retrievalMeta;

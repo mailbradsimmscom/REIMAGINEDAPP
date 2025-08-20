@@ -17,11 +17,12 @@ const STOP = new Set([
  * @returns {string[]} Array of lowercase tokens without stop words.
  */
 export function tokensFromQuestion(q) {
-  return String(q || '')
+  const tokens = String(q || '')
     .toLowerCase()
     .replace(/[^a-z0-9\s\-/.]/g, ' ')
     .split(/\s+/)
     .filter(t => t && !STOP.has(t));
+  return [...new Set(tokens)];
 }
 
 /**

@@ -154,6 +154,9 @@ export async function composeResponse({
           summary: out.summary || '',
           bullets: Array.isArray(out.bullets) ? out.bullets : [],
           cta: out.cta ?? null,
+          assets,
+          playbooks,
+          webSnippets,
           raw: {
             text: rawText,
             references: finalRefs
@@ -174,7 +177,7 @@ export async function composeResponse({
   // Fallback: synthesize from context so the UI never gets an empty body
   const synth = synthesizeFromContext({ question, contextText, references });
   synth.raw.references = filterUsedReferences(synth.raw.text, synth.raw.references).slice(0, 12);
-  return synth;
+  return { ...synth, assets, playbooks, webSnippets };
 }
 
 export default { composeResponse };
