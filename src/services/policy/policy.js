@@ -13,27 +13,22 @@ function safeRead(p) {
 const PERSONA_PATH = path.join(ROOT, 'docs', 'assistant_persona_REIMAGINEDSV.md');
 const STYLE_PATH   = path.join(ROOT, 'docs', 'response_style_policy_REIMAGINEDSV.md');
 
-const PERSONA_MD = safeRead(PERSONA_PATH);
-const STYLE_MD   = safeRead(STYLE_PATH);
+const PERSONA_MD = safeRead(PERSONA_PATH).trim();
+const STYLE_MD   = safeRead(STYLE_PATH).trim();
 
-// Expose a single system preamble
+// --- System preamble (reads your .md files) ---------------------------------
 export function getSystemPreamble() {
-  // Keep these clearly separated so the model treats them as policies, not examples
-  const persona = PERSONA_MD?.trim() || '';
-  const style   = STYLE_MD?.trim() || '';
   return [
     'You are REIMAGINEDSV assistant.',
-    persona && `## Assistant Persona\n${persona}`,
-    style && `## Response Style Policy\n${style}`,
-    // Guardrails
+    PERSONA_MD && `## Assistant Persona\n${PERSONA_MD}`,
+    STYLE_MD && `## Response Style Policy\n${STYLE_MD}`,
     'Always follow the policy and produce only the sections that apply, in the specified order.',
     'Never include extraneous content outside those sections.',
   ].filter(Boolean).join('\n\n');
 }
 
 // --- Policy enforcement / sanitation ----------------------------------------
-
-const ORDER = [
+export const POLICY_ORDER = [
   'In a nutshell',
   'Tools & Materials',
   'Step-by-step',
@@ -44,8 +39,8 @@ const ORDER = [
   'References'
 ];
 
-// (Loose) heading patterns: accept **Heading**, # Heading, or plain "Heading:"
-const H_PAT = ORDER.map(h => ({
+// loose heading patterns: accept **Heading**, # Heading, or "Heading:"
+const H_PAT = POLICY_ORDER.map(h => ({
   label: h,
   re: new RegExp(`^(?:\\*\\*\\s*)?${h.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\$&')}(?:\\s*\\*\\*)?\\s*:?$`, 'i')
 }));
@@ -53,11 +48,9 @@ const H_PAT = ORDER.map(h => ({
 function splitBlocks(md) {
   return String(md || '').split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
 }
-
 function isHeadingLine(s) {
   return /^(\*{2}[^*]+\*{2}|#{1,3}\s+.+|[A-Z].+?:\s*)$/.test(s.trim());
 }
-
 function normalizeHeadingText(s) {
   let t = s.trim();
   t = t.replace(/^#{1,3}\s+/, '');
@@ -72,22 +65,18 @@ function normalizeHeadingText(s) {
  */
 export function enforcePolicySections(md) {
   const blocks = splitBlocks(md);
-  const sections = new Map(ORDER.map(h => [h, []]));
+  const sections = new Map(POLICY_ORDER.map(h => [h, []]));
   let current = null;
 
   for (const b of blocks) {
-    // Check for a heading block
+    // heading?
     if (isHeadingLine(b)) {
       const h = normalizeHeadingText(b);
-      // Find matching policy heading
       const match = H_PAT.find(({ re }) => re.test(h));
-      if (match) { current = match.label; continue; }
-      // Non-policy heading → ignore it (prevents tail “BS”)
-      current = null;
+      current = match ? match.label : null;
       continue;
     }
-
-    // If we are currently within a policy section, keep it; else drop
+    // keep only content under a recognized heading
     if (current && sections.has(current)) {
       sections.get(current).push(b);
     }
@@ -103,7 +92,7 @@ export function enforcePolicySections(md) {
 
   // Rebuild in correct order; cap lengths to keep answers tight
   const parts = [];
-  for (const h of ORDER) {
+  for (const h of POLICY_ORDER) {
     const body = (sections.get(h) || []).join('\n\n').trim();
     if (!body) continue;
 
@@ -111,7 +100,6 @@ export function enforcePolicySections(md) {
 
     // Section-specific caps (soft limits)
     if (h === 'In a nutshell') {
-      // keep it 2-3 sentences max
       const sentences = cleaned.split(/(?<=[.!?])\s+/).slice(0, 3).join(' ');
       cleaned = sentences;
     }
@@ -120,7 +108,7 @@ export function enforcePolicySections(md) {
       const limited = [];
       for (const ln of lines) {
         if (/^\d+\.\s+/.test(ln)) limited.push(ln);
-        if (limited.length >= 12) break; // cap steps
+        if (limited.length >= 12) break;
       }
       cleaned = limited.join('\n');
     }
@@ -129,7 +117,7 @@ export function enforcePolicySections(md) {
       cleaned = lines.join('\n');
     }
     if (h === 'References') {
-      // We'll overwrite with our own references elsewhere; keep placeholder
+      // placeholder; responder will provide concrete refs
       cleaned = cleaned || '• (see retrieval sources below)';
     }
 
@@ -138,4 +126,3 @@ export function enforcePolicySections(md) {
 
   return parts.join('\n\n').trim();
 }
-
