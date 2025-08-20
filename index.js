@@ -50,8 +50,9 @@ app.use((req, res, next) => {
 // --- error handler
 app.use(errorHandler);
 
-// --- listen on fixed port 3000
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`[server] listening on http://localhost:${PORT}`);
+// --- listen on dynamic port for Replit/Render/etc.
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`[server] listening on http://${HOST}:${PORT}`);
 });

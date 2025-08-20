@@ -8,21 +8,16 @@ requiredFiles = [".replit", "replit.nix", "package.json", "package-lock.json"]
 [nix]
 channel = "stable-24_11"
 
-# What the Run button does in the workspace
-run = ["bash","-lc","export PORT=3000; npx -y kill-port 3000 >/dev/null 2>&1 || true; node index.js"]
-packages = ["lsof"]
+# Start your server. Do NOT force a port.
+run = ["bash","-lc","npm start"]
 
 [deployment]
-run = ["bash","-lc","export PORT=3000; node index.js"]
+run = ["bash","-lc","npm start"]
 deploymentTarget = "autoscale"
-ignorePorts = false
+ignorePorts = true
 
 [[ports]]
 localPort = 3000
-externalPort = 3000
-
-[[ports]]
-localPort = 3002
 externalPort = 80
 
-
+# Remove custom port mappings entirely. (Delete both [[ports]] blocks)
