@@ -28,7 +28,7 @@ export const ENV = {
 
   // Required (keep your current guarantees)
   PINECONE_INDEX: req('PINECONE_INDEX'),
-  OPENAI_API_KEY: req('OPENAI_API_KEY'),
+  OPENAI_API_KEY: opt('OPENAI_API_KEY', ''),
 
   // Namespaces
   PINECONE_NAMESPACE: opt('PINECONE_NAMESPACE', 'boat-dev'),

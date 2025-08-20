@@ -2,6 +2,11 @@
 import * as ai from '../ai/aiService.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ENV } from '../../config/env.js';
+
+if (!ENV.OPENAI_API_KEY) {
+  console.warn('[ai] OPENAI_API_KEY missing — responses will be generic fallback.');
+}
 
 function loadPersona() {
   try {
