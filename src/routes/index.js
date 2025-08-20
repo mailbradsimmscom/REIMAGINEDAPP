@@ -6,6 +6,7 @@ import * as apiMod from './api.js';
 import * as debugMod from './debug.js';
 import * as legacyMod from './legacy.js';
 import * as bffMod from './bff.js';
+import debugSupabase from './debug-supabase.js';
 import * as qaMod from './qa.js';
 import * as adminMod from './admin.js';
 import apiRouter from './api.js';
@@ -25,7 +26,7 @@ const qa = asRouter(qaMod, 'qa');
 const admin = asRouter(adminMod, 'admin');
 
 const router = Router();
-
+router.use(debugSupabase);
 // Primary mounts
 router.use('/api', api);
 router.use('/bff', bff);
