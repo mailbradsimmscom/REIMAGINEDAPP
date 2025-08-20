@@ -93,11 +93,7 @@ ${refs.length ? '**References**\n' + refs.join('\n') : ''}`.trim();
   };
 }
 
-/**
- * Compose a structured answer.
- * - Tries model-generated answer with persona + policy.
- * - If empty or error, falls back to synthesized answer from context.
- */
+/** keep only refs that appear in the body text */
 function filterUsedReferences(text = '', refs = []) {
   const used = [];
   const body = String(text || '');
@@ -123,14 +119,19 @@ export async function composeResponse({
   const persona = loadPersona();
   const policy = loadPolicy();
 
-  // prefer ai.generateStructured if present, else generate, else complete
+  // Prefer higher-level generators if they exist
   const gen =
     ai.generateStructured ||
     ai.generate ||
     ai.complete ||
     (ai.default && (ai.default.generateStructured || ai.default.generate || ai.default.complete));
 
-  // Build a single prompt that includes the policy as explicit instruction
+  // NEW: also detect your existing completion helper
+  const completion =
+    ai.completeWithPolicy ||
+    (ai.default && ai.default.completeWithPolicy);
+
+  // Build shared prompt parts
   const system = `${persona}\n\n${policy}`;
   const resources = {
     assets: Array.isArray(assets) ? assets.slice(0, 2) : [],
@@ -141,6 +142,7 @@ export async function composeResponse({
 
   try {
     if (typeof gen === 'function') {
+      // Path 1: your aiService provides a structured generator
       const out = await gen({ system, user, references, tone });
       const rawText = clean(out?.raw?.text || '');
       if (rawText) {
@@ -163,12 +165,54 @@ export async function composeResponse({
           }
         };
       }
+    } else if (typeof completion === 'function') {
+      // NEW Path 2: use your completeWithPolicy() (string) and wrap it into the structure
+      const prompt =
+`You are helping a boat owner.
+
+${system}
+
+Question:
+${question}
+
+Relevant context:
+${contextText || '(none)'}
+
+References:
+${
+  (Array.isArray(references) ? references : [])
+    .slice(0, 8)
+    .map(r => `• ${r.source || 'ref'}${r.title ? ` — ${r.title}` : r.id ? ` — ${r.id}` : ''}`)
+    .join('\n') || '(none)'
+}
+
+Tone: ${tone || 'neutral, clear'}
+
+Respond clearly and concisely.`;
+      const aiTextRaw = await completion({ prompt, systemExtra: '', temperature: 0.2 });
+      const aiText = clean(typeof aiTextRaw === 'string' ? aiTextRaw : String(aiTextRaw || ''));
+
+      // keep original refs (we can't “match by id” unless the model echoed them)
+      const finalRefs = (Array.isArray(references) ? references : []).slice(0, 12);
+
+      return {
+        title: 'Answer',
+        summary: '',
+        bullets: [],
+        cta: null,
+        assets,
+        playbooks,
+        webSnippets,
+        raw: {
+          text: aiText + (finalRefs.length ? `\n\n**References**\n` + finalRefs.map(r => `• ${r.source || 'ref'}${r.title ? ` — ${r.title}` : r.id ? ` — ${r.id}` : ''}`).join('\n') : ''),
+          references: finalRefs
+        }
+      };
     } else {
       // surface the missing export clearly
       console.warn('[responder] No AI generator function found on aiService. Falling back.');
     }
   } catch (e) {
-    // Make failures obvious during dev
     if (process.env.NODE_ENV !== 'production') {
       console.warn('[responder] AI generation error:', e.message);
     }
