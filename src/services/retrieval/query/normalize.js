@@ -1,7 +1,15 @@
 // src/services/retrieval/query/normalize.js
 // Utility functions to normalize search questions for retrieval.
 
-const STOP = new Set(['the','a','an','and','or','of','to','for','my','about']);
+// Basic English stop words to filter out filler terms from questions.
+// The list is intentionally small and purpose-driven; expand as needed.
+const STOP = new Set([
+  'the', 'a', 'an', 'and', 'or', 'of', 'to', 'for',
+  'my', 'about', 'is', 'are', 'was', 'were', 'be', 'being', 'been',
+  'i', 'me', 'we', 'us', 'our', 'you', 'your',
+  'can', 'could', 'would', 'should', 'do', 'does', 'did',
+  'tell', 'show', 'give', 'please', 'what', 'when', 'where', 'why', 'how'
+]);
 
 /**
  * Breaks a question into normalized tokens with stop-word removal.
