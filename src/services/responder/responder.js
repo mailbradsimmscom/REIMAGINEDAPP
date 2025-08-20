@@ -1,6 +1,6 @@
 // src/services/responder/responder.js
 import * as ai from '../ai/aiService.js';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ENV } from '../../config/env.js';
 
@@ -17,24 +17,41 @@ function loadPersona() {
   }
 }
 
+/**
+ * Prefer an external policy file so writers can edit without touching code:
+ *   docs/assistant_policy_REIMAGINEDSV.md
+ * If missing, use a strong inline fallback that enforces anchoring.
+ */
 function loadPolicy() {
-  // Response Style Policy — REIMAGINEDSV (short inline in case file missing)
+  const policyPath = join(process.cwd(), 'docs', 'assistant_policy_REIMAGINEDSV.md');
+  if (existsSync(policyPath)) {
+    try {
+      const p = readFileSync(policyPath, 'utf8');
+      const s = String(p || '').trim();
+      if (s) return s;
+    } catch {/* ignore and fall back */}
+  }
   return (
-`Apply this structure to every substantive answer:
-In a nutshell — 2–3 concise sentences with the gist and outcome.
-Tools & Materials — short bullets (omit if not relevant).
-Step-by-step — numbered actions; one idea per step.
-⚠️ Safety — clear cautions; short bullets.
-Specs & Notes — model-specific, numbers; short bullets.
-Dispose / Aftercare — cleanup/follow-up (if relevant).
-What’s next — quick tailoring/validation prompt.
-References — short list of sources used.
+`Response structure (use exactly these section names when relevant):
+In a nutshell — 2–3 sentences with the key answer.
+Tools & Materials — concise bullets (omit if irrelevant).
+Step-by-step — numbered steps tailored to the user's boat.
+⚠️ Safety — concrete cautions; short bullets.
+Specs & Notes — model-specific numbers & facts from the provided resources.
+Dispose / Aftercare — cleanup/follow-up (omit if N/A).
+What’s next — one short prompt to continue.
+References — list the sources you used.
 
-Formatting:
-- Plain, active voice; short paragraphs.
-- Bullets for options; numbers for procedures.
-- Put confident, concrete recommendations before caveats.
-- If context is insufficient, ask for one clarifying detail (one sentence max).`
+CRITICAL ANCHORING RULES:
+- If 'assets' or 'playbooks' are provided, you MUST reference them by name (manufacturer + model OR playbook title) in the body.
+- Pull 2–3 model-specific specs from the provided resources (e.g., interface, voltage, frequency, mounting).
+- Prefer boat inventory over generalities. If multiple items fit, focus on the top 1–2 with highest relevance.
+- If no relevant resources are provided, state that briefly, then give a general best-practice answer.
+
+Style:
+- Plain, active voice; concise; procedural.
+- No filler; avoid generic “what is …” unless no resources exist.
+- Do not invent specs. Only use facts appearing in the provided resources.`
   );
 }
 
@@ -52,6 +69,16 @@ function clean(s = '') {
     .trim();
 }
 
+/** human-friendly label for a reference (avoid UUIDs in the fallback text) */
+function refLabel(r = {}) {
+  const source = r.source || 'ref';
+  const title = r.title || r.description || null;
+  const mfg = r.manufacturer || null;
+  const mk = r.model_key || null;
+  const desc = title || mk || (mfg ? `${mfg}` : null);
+  return desc ? `${source} — ${desc}` : source;
+}
+
 /** builds a deterministic, policy-shaped fallback from raw context + refs */
 function synthesizeFromContext({ question, contextText, references }) {
   const ctx = clean(contextText || '');
@@ -66,9 +93,8 @@ function synthesizeFromContext({ question, contextText, references }) {
     if (bullets.length >= 10) break;
   }
 
-  const refs = (Array.isArray(references) ? references : [])
-    .slice(0, 8)
-    .map(r => `• ${r.source || 'source'}${r.id ? ` — ${r.id}` : ''}`);
+  const refsArr = (Array.isArray(references) ? references : []).slice(0, 8);
+  const refsLines = refsArr.map(r => `• ${refLabel(r)}`);
 
   const text =
 `**In a nutshell**
@@ -79,7 +105,7 @@ ${bullets.length ? '**Step-by-step**\n' + bullets.map((b,i)=>`${i+1}. ${b}`).joi
 **What’s next**
 Need further details or clarification?
 
-${refs.length ? '**References**\n' + refs.join('\n') : ''}`.trim();
+${refsLines.length ? '**References**\n' + refsLines.join('\n') : ''}`.trim();
 
   return {
     title: 'Answer',
@@ -88,23 +114,56 @@ ${refs.length ? '**References**\n' + refs.join('\n') : ''}`.trim();
     cta: null,
     raw: {
       text,
-      references: (Array.isArray(references) ? references : []).slice(0, 8)
+      references: refsArr
     }
   };
 }
 
-/** keep only refs that appear in the body text */
+/**
+ * Keep refs that the model actually used, but match by
+ *   - id (UUID) OR title OR model_key
+ * so we don't require UUIDs to appear in the prose.
+ */
 function filterUsedReferences(text = '', refs = []) {
-  const used = [];
-  const body = String(text || '');
+  const body = String(text || '').toLowerCase();
+  const seen = new Set();
+  const out = [];
+
   for (const r of Array.isArray(refs) ? refs : []) {
-    const id = r?.id || r?.source;
-    if (!id) continue;
-    if (!body.includes(String(id))) continue;
-    if (used.some(u => u.id === r.id || u.source === r.source)) continue;
-    used.push(r);
+    const id = String(r?.id || '').toLowerCase();
+    const title = String(r?.title || r?.description || '').toLowerCase();
+    const mk = String(r?.model_key || '').toLowerCase();
+
+    const matched =
+      (id && body.includes(id)) ||
+      (title && body.includes(title)) ||
+      (mk && body.includes(mk));
+
+    if (!matched) continue;
+    const key = r.id || r.title || r.model_key || `${r.source}-${out.length}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
   }
-  return used;
+  return out;
+}
+
+/** detect if the answer anchored to concrete boat items */
+function looksAnchored(text = '', assets = [], playbooks = []) {
+  const body = String(text || '').toLowerCase();
+  const needles = [];
+
+  for (const a of assets || []) {
+    if (a?.manufacturer) needles.push(String(a.manufacturer).toLowerCase());
+    if (a?.description)  needles.push(String(a.description).toLowerCase());
+    if (a?.model_key)    needles.push(String(a.model_key).toLowerCase());
+    if (a?.title)        needles.push(String(a.title).toLowerCase());
+  }
+  for (const p of playbooks || []) {
+    if (p?.title)     needles.push(String(p.title).toLowerCase());
+    if (p?.model_key) needles.push(String(p.model_key).toLowerCase());
+  }
+  return needles.some(n => n && body.includes(n));
 }
 
 export async function composeResponse({
@@ -126,7 +185,7 @@ export async function composeResponse({
     ai.complete ||
     (ai.default && (ai.default.generateStructured || ai.default.generate || ai.default.complete));
 
-  // NEW: also detect your existing completion helper
+  // existing completion helper (if present)
   const completion =
     ai.completeWithPolicy ||
     (ai.default && ai.default.completeWithPolicy);
@@ -134,23 +193,53 @@ export async function composeResponse({
   // Build shared prompt parts
   const system = `${persona}\n\n${policy}`;
   const resources = {
-    assets: Array.isArray(assets) ? assets.slice(0, 2) : [],
-    playbooks: Array.isArray(playbooks) ? playbooks.slice(0, 2) : [],
+    // give the model enough to anchor
+    assets: Array.isArray(assets) ? assets.slice(0, 4) : [],
+    playbooks: Array.isArray(playbooks) ? playbooks.slice(0, 4) : [],
     web: Array.isArray(webSnippets) ? webSnippets.slice(0, 2) : []
   };
-  const user = `Question: ${question}\n\nResources:\n${JSON.stringify(resources)}\n\nContext:\n${contextText || ''}\n\nReturn: JSON with {title, summary, bullets?, cta?, raw:{text, references[]}}.`;
+
+  const baseUser =
+`Question: ${question}
+
+Resources:
+${JSON.stringify(resources)}
+
+Context:
+${contextText || ''}
+
+Return: JSON with {title, summary, bullets?, cta?, raw:{text, references[]}}.`;
 
   try {
     if (typeof gen === 'function') {
-      // Path 1: your aiService provides a structured generator
-      const out = await gen({ system, user, references, tone });
-      const rawText = clean(out?.raw?.text || '');
+      // ---------- Pass 1
+      let out = await gen({ system, user: baseUser, references, tone });
+      let rawText = clean(out?.raw?.text || '');
+
+      // ---------- If generic, force anchoring with a second pass
+      if (rawText && !looksAnchored(rawText, resources.assets, resources.playbooks)) {
+        const userAnchored =
+`${baseUser}
+
+MANDATORY: Explicitly name and use the provided boat resources (assets/playbooks).
+Include 2–3 model-specific specs (numbers/standards) pulled from THOSE resources.
+Do NOT provide a generic primer.`;
+
+        const out2 = await gen({ system, user: userAnchored, references, tone });
+        const rawText2 = clean(out2?.raw?.text || '');
+        if (rawText2) { out = out2; rawText = rawText2; }
+      }
+
       if (rawText) {
         const combined = [
           ...(Array.isArray(out?.raw?.references) ? out.raw.references : []),
           ...(Array.isArray(references) ? references : [])
         ];
-        const finalRefs = filterUsedReferences(rawText, combined).slice(0, 12);
+        // allow title/model_key matches, not only UUIDs
+        let finalRefs = filterUsedReferences(rawText, combined).slice(0, 12);
+        // if the model didn’t echo any identifiers, keep at least a couple refs
+        if (finalRefs.length === 0 && combined.length) finalRefs = combined.slice(0, 4);
+
         return {
           title: out.title || 'Answer',
           summary: out.summary || '',
@@ -166,7 +255,7 @@ export async function composeResponse({
         };
       }
     } else if (typeof completion === 'function') {
-      // NEW Path 2: use your completeWithPolicy() (string) and wrap it into the structure
+      // Fallback to string completion path (kept for compatibility)
       const prompt =
 `You are helping a boat owner.
 
@@ -182,7 +271,7 @@ References:
 ${
   (Array.isArray(references) ? references : [])
     .slice(0, 8)
-    .map(r => `• ${r.source || 'ref'}${r.title ? ` — ${r.title}` : r.id ? ` — ${r.id}` : ''}`)
+    .map(r => `• ${refLabel(r)}`)
     .join('\n') || '(none)'
 }
 
@@ -192,7 +281,6 @@ Respond clearly and concisely.`;
       const aiTextRaw = await completion({ prompt, systemExtra: '', temperature: 0.2 });
       const aiText = clean(typeof aiTextRaw === 'string' ? aiTextRaw : String(aiTextRaw || ''));
 
-      // keep original refs (we can't “match by id” unless the model echoed them)
       const finalRefs = (Array.isArray(references) ? references : []).slice(0, 12);
 
       return {
@@ -204,12 +292,11 @@ Respond clearly and concisely.`;
         playbooks,
         webSnippets,
         raw: {
-          text: aiText + (finalRefs.length ? `\n\n**References**\n` + finalRefs.map(r => `• ${r.source || 'ref'}${r.title ? ` — ${r.title}` : r.id ? ` — ${r.id}` : ''}`).join('\n') : ''),
+          text: aiText + (finalRefs.length ? `\n\n**References**\n` + finalRefs.map(r => `• ${refLabel(r)}`).join('\n') : ''),
           references: finalRefs
         }
       };
     } else {
-      // surface the missing export clearly
       console.warn('[responder] No AI generator function found on aiService. Falling back.');
     }
   } catch (e) {
@@ -218,9 +305,12 @@ Respond clearly and concisely.`;
     }
   }
 
-  // Fallback: synthesize from context so the UI never gets an empty body
+  // Deterministic fallback
   const synth = synthesizeFromContext({ question, contextText, references });
   synth.raw.references = filterUsedReferences(synth.raw.text, synth.raw.references).slice(0, 12);
+  if (synth.raw.references.length === 0 && Array.isArray(references) && references.length) {
+    synth.raw.references = references.slice(0, 4);
+  }
   return { ...synth, assets, playbooks, webSnippets };
 }
 
