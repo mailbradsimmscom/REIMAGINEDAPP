@@ -20,7 +20,7 @@ export async function runRetrieval(question = '', { limit = 3 } = {}) {
   const fts = orQuery(tokens);
   const meta = {
     mode: 'direct',
-    tokens: tokens.length,
+    tokens,
     asset_rows: 0,
     playbook_rows: 0,
     asset_selected: 0,
