@@ -11,7 +11,7 @@ import { log } from '../utils/log.js';
 
 // NEW: FTS RPC + token helpers (added)
 import { searchAssetsFT, searchPlaybooksFT } from '../services/sql/rpcSearch.js';
-import { tokensFromQuestion, orQuery } from '../services/retrieval/queryBuild.js';
+import { tokensFromQuestion, orQuery } from '../services/retrieval/query/normalize.js';
 
 const router = Router();
 
