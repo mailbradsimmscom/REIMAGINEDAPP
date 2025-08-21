@@ -1,7 +1,8 @@
 // src/services/retrieval/mixerService.js
+// Main orchestrator for retrieval pipeline coordination
+
 import { pineconeAdapter as pinecone } from '../vector/pineconeAdapter.js';
 import * as ai from '../ai/aiService.js';
-import { ENV } from '../../config/env.js';
 import {
   searchPlaybooks,
   formatPlaybookBlock,
@@ -14,136 +15,29 @@ import {
   filterAndRank
 } from '../world/serpapiService.js';
 import { fetchAndChunk } from '../fetch/fetchAndChunk.js';
+
+// Extracted services
+import { classifyQuestion } from './intent/intentClassifier.js';
+import { cleanChunk, escapeRegex, scoreChunkByHints } from './utils/textProcessing.js';
+import { dedupById, capContext } from './utils/contextUtils.js';
+import { vectorRetrieve } from './vector/vectorRetrieval.js';
+import { vectorSearch } from './vector/vectorSearch.js';
+import { assetSearch } from './sources/assetSearch.js';
+import { playbookSearch } from './sources/playbookSearch.js';
+import { worldSearch } from './sources/worldSearch.js';
 import retrievalConfig from './retrievalConfig.json' with { type: 'json' };
-import intentConfig from './intentConfig.json' with { type: 'json' };
 
-/* ---------- Intent classifier ---------- */
-export async function classifyQuestion(question = '') {
-  const q = String(question).toLowerCase();
-  const rules = intentConfig?.intents || intentConfig || {};
-  for (const [intent, rule] of Object.entries(rules)) {
-    const { all = [], any = [] } = rule || {};
-    const allMatch = all.every(p => new RegExp(p, 'i').test(q));
-    const anyMatch = any.length === 0 || any.some(p => new RegExp(p, 'i').test(q));
-    if (allMatch && anyMatch) return intent;
-  }
-  if (typeof ai.classifyIntent === 'function') {
-    try {
-      const aiIntent = await ai.classifyIntent(question);
-      if (aiIntent) return aiIntent;
-    } catch { /* ignore */ }
-  }
-  return 'generic';
-}
 
-/* ---------- Sanitizer (kills PDF/OCR noise) ---------- */
-function cleanChunk(t = '') {
-  return String(t)
-    .replace(/\b(\d{1,3})\s*\|\s*Pa\s*ge\b/gi, '')
-    .replace(/\bPage\s+\d+\b/gi, '')
-    .replace(/·/g, '•')
-    .replace(/-\s*\n\s*/g, '')
-    .replace(/\u00A0/g, ' ')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n(?!\n)/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
+/* ---------- Orchestrator ---------- */
 
-/* ---------- Re-ranking ---------- */
-function escapeRegex(str) { return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-function scoreChunkByHints(text, hints = []) {
-  const s = String(text || '').toLowerCase();
-  let score = 0;
-  for (const h of hints) {
-    if (!h) continue;
-    const re = new RegExp(`\\b${escapeRegex(h)}\\b`, 'i');
-    if (re.test(s)) score += 2;
-  }
-  return score;
-}
-function reRankAndPrune(matches, { keep = 4, question }) {
-  if (!Array.isArray(matches) || !matches.length) return [];
-  const hints = derivePlaybookKeywords(question);
-  const scored = matches
-    .map(m => ({ ...m, _scoreLocal: scoreChunkByHints(m.text || '', hints) }))
-    .filter(m => m._scoreLocal > 0)
-    .sort((a, b) => ((b.score || 0) - (a.score || 0)) || ((b._scoreLocal || 0) - (a._scoreLocal || 0)));
-  const seen = new Set();
-  const out = [];
-  for (const m of scored) {
-    const key = m.id || (m.text || '').slice(0, 160);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(m);
-    if (out.length >= keep) break;
-  }
-  return out;
-}
-
-/* ---------- Utils ---------- */
-function dedupById(items) {
-  const seen = new Set();
-  const out = [];
-  for (const it of items) {
-    const key = it?.id || JSON.stringify(it).slice(0, 200);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(it);
-  }
-  return out;
-}
-function onTopic(hints, text) { const s = String(text || '').toLowerCase(); return hints.some(h => s.includes(h)); }
-function capContext(text, maxChars = 6000) {
-  const t = String(text || '');
-  if (t.length <= maxChars) return t;
-  const cut = t.slice(0, maxChars);
-  const lastBreak = Math.max(cut.lastIndexOf('\n\n'), cut.lastIndexOf('\n'), cut.lastIndexOf('. '));
-  return cut.slice(0, lastBreak > 1200 ? lastBreak : maxChars);
-}
-
-/* ---------- Vector (Pinecone) ---------- */
-async function vectorRetrieve(question, { topK = 8, namespace, hints, aiService = ai, pineconeAdapter = pinecone }) {
-  const out = { defaultMatches: [], worldMatches: [] };
-  const embedFn =
-    aiService.embed ||
-    (aiService.aiService && aiService.aiService.embed) ||
-    (typeof aiService.default === 'object' && aiService.default.embed) ||
-    null;
-  if (!embedFn || !pineconeAdapter) return out;
-
-  let vector = null;
-  try { vector = await embedFn(question); } catch { return out; }
-  if (!Array.isArray(vector) || !vector.length) return out;
-
-  const k = Math.max(3, Math.min(Number(process.env.RETRIEVAL_TOPK) || topK, 20));
-
-  try {
-    const def = await pineconeAdapter.query({ vector, topK: k, namespace: namespace || undefined });
-    out.defaultMatches = (def || [])
-      .filter(m => m && m.text)
-      .map(m => ({ ...m, text: cleanChunk(m.text) }));
-  } catch { out.defaultMatches = []; }
-
-  try {
-    const worldNs = process.env.WORLD_NAMESPACE || 'world';
-    const w = await pineconeAdapter.query({ vector, topK: Math.min(k, 5), namespace: worldNs });
-    out.worldMatches = (w || [])
-      .filter(m => m && m.text)
-      .map(m => ({ ...m, text: cleanChunk(m.text) }));
-  } catch { out.worldMatches = []; }
-
-  const topical = out.defaultMatches.filter(m => onTopic(hints, m.text));
-  topical.sort((a, b) => (b.score || 0) - (a.score || 0));
-  out.defaultMatches = topical.slice(0, 8);
-  out.worldMatches = out.worldMatches.slice(0, 2);
-  return out;
-}
-
-/* ---------- Main pipeline ---------- */
+/**
+ * Main retrieval orchestrator - coordinates all search services
+ * and assembles the final context mix for AI generation
+ */
 export async function buildContextMix({
   question, namespace, topK = 8, requestId, intent = 'generic'
 }, {
+  // Service dependencies (for testing/customization)
   searchPlaybooks: searchPB = searchPlaybooks,
   searchAssets: searchAS = searchAssets,
   formatPlaybookBlock: formatPB = formatPlaybookBlock,
@@ -155,6 +49,7 @@ export async function buildContextMix({
   aiService: aiSvc = ai,
   pineconeAdapter: pineconeSvc = pinecone
 } = {}) {
+  // Initialize shared state
   const meta = {
     requestId,
     playbook_hit: false,
@@ -171,186 +66,53 @@ export async function buildContextMix({
     router_keywords: []
   };
 
-  const hints = deriveKW(question); // now filters stopwords
+  const hints = deriveKW(question);
   const parts = [];
   const refs = [];
   const assets = [];
   const playbooks = [];
   const webSnippets = [];
 
+  // Define coordinated search steps
   const steps = {
     async assetSearch() {
-      if (!ENV.RETRIEVAL_ASSET_ENABLED) return;
-      try {
-        if (!hints || hints.length === 0) return;
-        const assetsRes = await searchAS(hints, { limit: 3 });
-        meta.asset_rows += assetsRes.length;
-        for (const a of assetsRes) {
-          const text = [
-            [a.manufacturer, a.model].filter(Boolean).join(' '),
-            a.description,
-            a.notes
-          ].filter(Boolean).join('. ');
-          if (text) parts.push(text);
-          refs.push({ id: a.id, source: a.source || 'asset', score: Math.min(0.8, (a.score || 1) / 10 + 0.6) });
-          assets.push({
-            id: a.id,
-            manufacturer: a.manufacturer,
-            model: a.model,
-            description: a.description,
-            notes: a.notes,
-            source: a.source || 'asset'
-          });
-          meta.asset_selected += 1;
-        }
-      } catch (e) { meta.failures.push(`asset:${e.message}`); }
+      await assetSearch({ hints, parts, refs, assets, meta, searchAS });
     },
 
     async playbookSearch() {
-      if (!ENV.RETRIEVAL_PLAYBOOK_ENABLED) return;
-      try {
-        // Only run when there are meaningful hints (prevents “match everything”)
-        if (!hints || hints.length === 0) return;
-
-        const pbs = await searchPB(question, { limit: 3 });
-        meta.sql_rows += pbs.length;
-
-        for (const pb of pbs.slice(0, 2)) {
-          const block = formatPB(pb);
-          if (!block) continue;
-          playbooks.push(block);
-
-          if (Array.isArray(pb.ref_domains) && pb.ref_domains.length) {
-            meta.allow_domains = Array.from(new Set([
-              ...meta.allow_domains,
-              ...pb.ref_domains
-            ]));
-          }
-
-          const kwText = [
-            pb.title,
-            pb.summary,
-            ...(Array.isArray(pb.steps) ? pb.steps : []),
-            pb.safety
-          ].filter(Boolean).join(' ');
-          const rk = deriveKW(kwText);
-          if (rk.length) {
-            meta.router_keywords = Array.from(new Set([
-              ...meta.router_keywords,
-              ...rk
-            ]));
-          }
-
-          refs.push({
-            id: block.id,
-            source: block.source,
-            score: Math.min(0.95, (pb.score || 1) / 10 + 0.85)
-          });
-          meta.sql_selected += 1;
-        }
-        if (meta.sql_selected > 0) meta.playbook_hit = true;
-      } catch (e) { meta.failures.push(`playbooks:${e.message}`); }
+      await playbookSearch({ question, hints, playbooks, refs, meta, searchPB, formatPB, deriveKW });
     },
 
     async vectorSearch() {
-      if (!ENV.RETRIEVAL_VECTOR_ENABLED) return;
-      let defaultMatches = [];
-      let worldMatches = [];
-      try {
-        const res = await vectorRetrieve(question, { topK, namespace, hints, aiService: aiSvc, pineconeAdapter: pineconeSvc });
-        defaultMatches = res.defaultMatches || [];
-        worldMatches = res.worldMatches || [];
-        meta.vec_default_matches = defaultMatches.length;
-        meta.vec_world_matches = worldMatches.length;
-      } catch (e) { meta.failures.push(`vector:${e.message}`); }
-
-      const prunedDefault = reRankAndPrune(defaultMatches, { keep: 3, question });
-      const prunedWorld = reRankAndPrune(worldMatches, { keep: 1, question });
-      meta.pruned_default = prunedDefault.length;
-      meta.pruned_world = prunedWorld.length;
-
-      for (const m of prunedDefault) {
-        parts.push(m.text);
-        refs.push({ id: m.id, source: m.source || 'default', score: m.score });
-      }
-      for (const m of prunedWorld) {
-        parts.push(m.text);
-        refs.push({ id: m.id, source: m.source || 'world', score: m.score });
-      }
+      await vectorSearch({ question, topK, namespace, hints, parts, refs, meta, aiService: aiSvc, pineconeAdapter: pineconeSvc });
     },
 
     async worldSearch() {
-      if (!ENV.RETRIEVAL_WEB_ENABLED) return;
-      const enabled = String(process.env.WORLD_SEARCH_ENABLED || '').toLowerCase();
-      if (!['1', 'true', 'yes', 'on'].includes(enabled)) return;
-
-      const threshold = Number(process.env.WORLD_SEARCH_PARTS_THRESHOLD) || 4;
-      if (parts.length >= threshold) return;
-
-      const allowDomains = meta.allow_domains.length
-        ? meta.allow_domains
-        : String(process.env.WORLD_ALLOWLIST || '').split(',');
-      const allowed = allowDomains.map(d => String(d).toLowerCase()).filter(Boolean);
-      if (allowed.length === 0) return;
-
-      try {
-        const router = { allowDomains, keywords: meta.router_keywords };
-        const asset = {};
-        const { queries } = buildWQ(asset, router);
-        if (!queries.length) return;
-
-        const topKWorld = Math.max(1, Math.min(Number(process.env.WORLD_SEARCH_TOPK) || 2, 5));
-        let results = [];
-        try {
-          results = await serpSearch(queries, { num: topKWorld * 2 });
-        } catch (e) {
-          meta.failures.push(`serpapi:${e.message}`);
-          return;
-        }
-
-        const ranked = filterRank(results, asset, router, process.env.WORLD_SEARCH_TOPK);
-
-        const seenUrls = new Set();
-        for (const r of ranked) {
-          try {
-            const urlObj = new URL(r.link);
-            const host = urlObj.hostname.toLowerCase();
-            if (allowed.length && !allowed.some(d => host === d || host.endsWith(`.${d}`))) continue;
-            if (seenUrls.has(r.link)) continue;
-            seenUrls.add(r.link);
-
-            const chunks = await fetchChunk(r.link);
-            let addedRef = false;
-            let addedSnippet = false;
-            for (const ch of chunks) {
-              const txt = cleanChunk(ch?.text ?? ch);
-              if (!txt) continue;
-              parts.push(txt);
-              if (!addedSnippet) {
-                webSnippets.push({ url: r.link, text: txt });
-                addedSnippet = true;
-              }
-              if (!addedRef) {
-                refs.push({ id: r.link, source: r.link, score: 0.2 });
-                addedRef = true;
-              }
-            }
-          } catch (err) {
-            meta.failures.push(`worldFetch:${err.message}`);
-          }
-        }
-      } catch (e) {
-        meta.failures.push(`world:${e.message}`);
-      }
+      await worldSearch({ parts, refs, meta, webSnippets, buildWQ, serpSearch, filterRank, fetchChunk });
     }
   };
 
+  // Execute configured retrieval plan
   const plan = retrievalConfig[intent] || retrievalConfig.default || Object.keys(steps);
-  for (const step of plan) { const fn = steps[step]; if (typeof fn === 'function') await fn(); }
+  for (const step of plan) {
+    const fn = steps[step];
+    if (typeof fn === 'function') await fn();
+  }
 
+  // Assemble final response
   const references = dedupById(refs);
   const contextText = capContext(cleanChunk(parts.join('\n\n')), 6000);
   return { contextText, references, meta, assets, playbooks, webSnippets };
 }
 
-export default { buildContextMix, classifyQuestion };
+export default { buildContextMix };
+
+// Re-export functions for backward compatibility
+export { classifyQuestion };
+export { cleanChunk, escapeRegex, scoreChunkByHints };
+export { dedupById, capContext };
+export { vectorRetrieve };
+export { vectorSearch };
+export { assetSearch };
+export { playbookSearch };
+export { worldSearch };

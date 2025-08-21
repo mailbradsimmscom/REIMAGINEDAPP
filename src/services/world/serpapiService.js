@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { escapeRegex } from '../retrieval/utils/textProcessing.js';
 
 const SERPAPI_KEY = process.env.SERPAPI_API_KEY || '';
 
@@ -77,9 +78,6 @@ export async function serpapiSearch(queries = [], { engine = 'google', num = 10 
   return out;
 }
 
-function escapeRegex(str) {
-  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 export function filterAndRank(results = [], asset = {}, router = {}, topK = 5) {
   const { manufacturer = '', model = '', model_key = '' } = asset || {};
