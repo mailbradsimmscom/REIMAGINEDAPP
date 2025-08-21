@@ -2,10 +2,10 @@
 // Coordinates AI service interactions for response generation
 
 import * as ai from '../../ai/aiService.js';
-import { ENV } from '../../../config/env.js';
+import { config } from '../../../config/index.js';
 import { cleanText } from '../processing/textProcessor.js';
 
-if (!ENV.OPENAI_API_KEY) {
+if (!config.OPENAI_API_KEY) {
   console.warn('[ai] OPENAI_API_KEY missing — responses will be generic fallback.');
 }
 
@@ -114,7 +114,7 @@ export async function generateWithAI({
     return { success: false, error: 'No AI generator available' };
     
   } catch (e) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (config.NODE_ENV !== 'production') {
       console.warn('[responder] AI generation error:', e.message);
     }
     return { success: false, error: e.message };

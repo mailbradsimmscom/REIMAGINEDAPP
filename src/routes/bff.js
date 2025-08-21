@@ -8,7 +8,7 @@ import { log } from '../utils/log.js';
 
 const router = Router();
 
-async function handleQuery(req, res, { client = 'web' } = {}) {
+async function handleQuery(req, res, next, { client = 'web' } = {}) {
   try {
     // 1) Validate and extract request parameters
     const {
@@ -62,27 +62,24 @@ async function handleQuery(req, res, { client = 'web' } = {}) {
     // 5) Respond (unchanged)
     res.json(payload);
   } catch (err) {
-    // Handle validation errors with proper status codes
-    if (err.status && err.response) {
-      return res.status(err.status).json(err.response);
-    }
-    res.status(500).json({ ok: false, error: err.message });
+    // Let the error middleware handle all errors
+    next(err);
   }
 }
 
 // Web BFF (UI default)
-router.post('/web/query', async (req, res) => {
-  await handleQuery(req, res, { client: 'web' });
+router.post('/web/query', async (req, res, next) => {
+  await handleQuery(req, res, next, { client: 'web' });
 });
 
 // iOS BFF (kept for parity; tone is handled in composeResponse/persona)
-router.post('/ios/query', async (req, res) => {
-  await handleQuery(req, res, { client: 'ios' });
+router.post('/ios/query', async (req, res, next) => {
+  await handleQuery(req, res, next, { client: 'ios' });
 });
 
 // API (verbose)
-router.post('/api/query', async (req, res) => {
-  await handleQuery(req, res, { client: 'api' });
+router.post('/api/query', async (req, res, next) => {
+  await handleQuery(req, res, next, { client: 'api' });
 });
 
 export default router;

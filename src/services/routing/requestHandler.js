@@ -1,11 +1,13 @@
 // src/services/routing/requestHandler.js
 // Handles request validation and parameter extraction for BFF routes
 
+import { ValidationError } from '../../utils/errors.js';
+
 /**
  * Validate request and extract parameters with proper error handling
  * @param {Object} req - Express request object
  * @returns {Object} Validated and extracted parameters
- * @throws {Error} If validation fails (with status property for HTTP response)
+ * @throws {ValidationError} If validation fails
  */
 export function validateAndExtractParams(req) {
   // Extract parameters from request body
@@ -26,10 +28,7 @@ export function validateAndExtractParams(req) {
 
   // Validate required question parameter
   if (!question || !String(question).trim()) {
-    const error = new Error('Missing question');
-    error.status = 400;
-    error.response = { ok: false, error: 'Missing question' };
-    throw error;
+    throw new ValidationError('Question is required and cannot be empty', 'question');
   }
 
   // Return validated parameters

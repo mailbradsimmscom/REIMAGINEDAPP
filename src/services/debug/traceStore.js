@@ -3,7 +3,9 @@
 // Safe to use in Replit/dev. In production behind multiple instances,
 // you'd forward to a real log sink.
 
-const MAX_TRACES = Number(process.env.TRACE_MAX || 200);
+import { config } from '../../config/index.js';
+
+const MAX_TRACES = config.TRACE_MAX;
 
 const traces = new Map(); // requestId -> { time, question, meta }
 const order = [];         // ring buffer of requestIds

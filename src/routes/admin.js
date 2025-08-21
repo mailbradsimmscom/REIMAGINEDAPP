@@ -7,6 +7,9 @@ import {
   computeCacheKeyPreview
 } from '../services/cache/answerCacheService.js';
 import { embedText } from '../services/ai/aiService.js';
+import { sendSuccess, sendError, sendNotFound } from '../utils/responses.js';
+import { DatabaseError, ConfigurationError } from '../utils/errors.js';
+import { asyncHandler } from '../middleware/error.js';
 
 const router = Router();
 
@@ -14,47 +17,50 @@ const router = Router();
  * GET /admin/supabase
  * Lightweight health check + tiny summary.
  */
-router.get('/supabase', async (_req, res) => {
+router.get('/supabase', asyncHandler(async (_req, res) => {
   if (!supabase) {
-    return res.json({ ok: false, health: { ok: false, error: 'No Supabase client' }, summary: null, error: 'No Supabase client' });
+    throw new ConfigurationError('No Supabase client configured', 'SUPABASE_URL');
   }
-  try {
-    // Tiny probe: count(standards_playbooks_compat) may be restricted by RLS; fall back to a simple select limit 1
-    const { data, error } = await supabase
-      .from('standards_playbooks_compat')
-      .select('id')
-      .limit(1);
+  
+  // Tiny probe: count(standards_playbooks_compat) may be restricted by RLS; fall back to a simple select limit 1
+  const { data, error } = await supabase
+    .from('standards_playbooks_compat')
+    .select('id')
+    .limit(1);
 
-    if (error) {
-      return res.json({ ok: true, health: { ok: true, warning: error.message }, summary: {} });
-    }
-    return res.json({ ok: true, health: { ok: true }, summary: {} });
-  } catch (e) {
-    return res.json({ ok: false, health: { ok: false, error: e.message }, summary: null, error: 'Probe failed' });
+  if (error) {
+    sendSuccess(res, { health: { ok: true, warning: error.message }, summary: {} }, 'Supabase connection OK with warnings');
+  } else {
+    sendSuccess(res, { health: { ok: true }, summary: {} }, 'Supabase health check passed');
   }
-});
+}));
 
 /**
  * GET /admin/cache
  * List recent cache rows (answers_cache).
  * Query: ?limit=10
  */
-router.get('/cache', async (req, res) => {
-  if (!supabase) return res.json({ ok: false, error: 'No Supabase client' });
-  const limit = Math.max(1, Math.min(parseInt(req.query.limit || '10', 10) || 10, 100));
-  try {
-    const { data, error, count } = await supabase
-      .from('answers_cache')
-      .select('id,intent_key,created_at,expires_at,evidence_ids', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    if (error) return res.json({ ok: false, error: error.message });
-    return res.json({ ok: true, count: count || (data?.length || 0), rows: data || [] });
-  } catch (e) {
-    return res.json({ ok: false, error: e.message });
+router.get('/cache', asyncHandler(async (req, res) => {
+  if (!supabase) {
+    throw new ConfigurationError('No Supabase client configured', 'SUPABASE_URL');
   }
-});
+  
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit || '10', 10) || 10, 100));
+  const { data, error, count } = await supabase
+    .from('answers_cache')
+    .select('id,intent_key,created_at,expires_at,evidence_ids', { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    throw new DatabaseError('Failed to fetch cache entries', 'select', 'answers_cache', error);
+  }
+  
+  sendSuccess(res, { 
+    count: count || (data?.length || 0), 
+    rows: data || [] 
+  }, 'Cache entries retrieved successfully');
+}));
 
 /**
  * GET /admin/cache/:id

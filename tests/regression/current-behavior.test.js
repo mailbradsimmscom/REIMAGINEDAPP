@@ -152,27 +152,60 @@ describe('Current System Behavior - ROBUST', () => {
       assert(hasError || hasSuccess, 'Should have either error or success structure');
     }
 
-    // Test empty question separately (should return 400 - correct behavior)
-    const { status: emptyStatus } = await client.post('/bff/web/query', { question: "" });
-    assert(emptyStatus === 400 || emptyStatus === 200, 'Empty question should return 400 or 200');
+    // Test empty question separately (should return 400 - ValidationError)
+    const { status: emptyStatus, body: emptyBody } = await client.post('/bff/web/query', { question: "" });
+    assert.strictEqual(emptyStatus, 400, 'Empty question should return 400 ValidationError');
+    
+    // Validate the new error format
+    assert.strictEqual(emptyBody.ok, false, 'Error response should have ok: false');
+    assert(emptyBody.error, 'Error response should have error object');
+    assert.strictEqual(emptyBody.error.type, 'ValidationError', 'Should be ValidationError type');
+    assert.strictEqual(emptyBody.error.code, 'VALIDATION_ERROR', 'Should have correct error code');
+    assert.strictEqual(emptyBody.error.field, 'question', 'Should identify the field that failed validation');
 
     console.log('✅ Multiple question types handled consistently');
-    console.log(`   Empty question returns: ${emptyStatus} (expected 400 or 200)`);
+    console.log(`   Empty question returns: ${emptyStatus} with ValidationError format`);
   });
 
-  test('Server error handling', async () => {
-    // Test malformed requests
-    const { status: status1 } = await client.post('/bff/web/query', {});
-    const { status: status2 } = await client.post('/bff/web/query', { invalid: "data" });
+  test('Server error handling with ValidationError', async () => {
+    // Test missing question - should return 400 ValidationError
+    const { status: status1, body: body1 } = await client.post('/bff/web/query', {});
+    assert.strictEqual(status1, 400, 'Missing question should return 400');
+    assert.strictEqual(body1.ok, false, 'Should have ok: false');
+    assert.strictEqual(body1.error.type, 'ValidationError', 'Should be ValidationError');
+    assert(body1.requestId, 'Should have requestId for debugging');
 
-    // Should handle gracefully (either 200 with error or 4xx)
-    assert(status1 === 200 || (status1 >= 400 && status1 < 500), 
-           'Should handle missing question gracefully');
-    assert(status2 === 200 || (status2 >= 400 && status2 < 500),
-           'Should handle invalid data gracefully');
+    // Test invalid data structure - should also return 400 ValidationError (missing question)
+    const { status: status2, body: body2 } = await client.post('/bff/web/query', { invalid: "data" });
+    assert.strictEqual(status2, 400, 'Invalid data should return 400');
+    assert.strictEqual(body2.ok, false, 'Should have ok: false');
+    assert.strictEqual(body2.error.type, 'ValidationError', 'Should be ValidationError');
+    assert.strictEqual(body2.error.field, 'question', 'Should identify missing question field');
 
-    console.log('✅ Error handling validation passed');
-    console.log(`   Empty request: ${status1}`);
-    console.log(`   Invalid request: ${status2}`);
+    console.log('✅ ValidationError handling validation passed');
+    console.log(`   Empty request: ${status1} with ${body1.error.type}`);
+    console.log(`   Invalid request: ${status2} with ${body2.error.type}`);
+  });
+
+  test('Successful requests maintain expected response format', async () => {
+    // Test that successful requests still return the expected structure
+    const { status, body } = await client.post('/bff/web/query', {
+      question: "test validation success"
+    });
+
+    assert.strictEqual(status, 200, 'Valid question should return 200');
+    assert(typeof body === 'object', 'Should return object');
+    assert(body !== null, 'Should not be null');
+    
+    // Success responses should NOT have the new error format
+    assert(body.ok === undefined, 'Success responses should not have ok field');
+    assert(body.error === undefined, 'Success responses should not have error field');
+    
+    // Should have expected success structure
+    assert(body.hasOwnProperty('summary'), 'Should have summary');
+    assert(body.hasOwnProperty('assets'), 'Should have assets');
+    assert(body.hasOwnProperty('playbooks'), 'Should have playbooks');
+
+    console.log('✅ Success response format validation passed');
   });
 });

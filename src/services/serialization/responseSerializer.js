@@ -3,7 +3,7 @@
 
 import { webSerializer, apiSerializer } from '../../views/serializers.js';
 import { setTrace } from '../debug/traceStore.js';
-import { ENV } from '../../config/env.js';
+import { config } from '../../config/index.js';
 
 /**
  * Serialize response for client with appropriate enrichment
@@ -42,7 +42,7 @@ export function serializeResponse({
   payload.playbooks = Array.isArray(structured?.playbooks) ? structured.playbooks : [];
 
   // 3) Attach retrieval metadata if enabled
-  if (retrievalMeta && ENV.RETRIEVAL_TELEMETRY_ENABLED) {
+  if (retrievalMeta && config.RETRIEVAL_TELEMETRY_ENABLED) {
     setTrace(requestId, { question, meta: retrievalMeta });
     payload._retrievalMeta = retrievalMeta;
   }

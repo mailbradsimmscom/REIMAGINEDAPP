@@ -1,6 +1,8 @@
 // index.js (ESM)
 // index.js (very top line)
 import 'dotenv/config';
+import { config, getConfigSummary } from './src/config/index.js';
+
 import express from 'express';
 import morgan from 'morgan';
 import cors from 'cors';
@@ -51,8 +53,14 @@ app.use((req, res, next) => {
 app.use(errorHandler);
 
 // --- listen on dynamic port for Replit/Render/etc.
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = config.PORT;
 const HOST = '0.0.0.0';
+
+// Log configuration summary on startup
+if (config.NODE_ENV !== 'test') {
+  console.log('[server] Configuration summary:', JSON.stringify(getConfigSummary(), null, 2));
+}
+
 app.listen(PORT, HOST, () => {
-  console.log(`[server] listening on http://${HOST}:${PORT}`);
+  console.log(`[server] listening on http://${HOST}:${PORT} (${config.NODE_ENV})`);
 });

@@ -2,7 +2,7 @@
 // Coordinates Full Text Search (FTS) retrieval using Supabase RPC calls
 
 import { composeResponse } from '../responder/responder.js';
-import { ENV } from '../../config/env.js';
+import { config } from '../../config/index.js';
 import { log } from '../../utils/log.js';
 
 // FTS RPC + token helpers
@@ -10,9 +10,7 @@ import { searchAssetsFT, searchPlaybooksFT } from '../sql/rpcSearch.js';
 import { tokensFromQuestion, orQuery } from './query/normalize.js';
 
 // Flag: enable the new FTS retrieval path (assets_v2 + playbooks VIEW)
-const USE_FTS =
-  String(ENV?.RETRIEVAL_FTS_ENABLED ?? process.env.RETRIEVAL_FTS_ENABLED ?? 'false')
-    .toLowerCase() === 'true';
+const USE_FTS = config.RETRIEVAL_FTS_ENABLED;
 
 /**
  * Handle FTS retrieval path using Supabase full-text search

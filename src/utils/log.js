@@ -1,2 +1,4 @@
 import pino from 'pino';
-export const log = pino({ level: process.env.LOG_LEVEL || 'info', base: undefined });
+import { config } from '../config/index.js';
+
+export const log = pino({ level: config.LOG_LEVEL, base: undefined });

@@ -2,7 +2,7 @@
 // Handles background telemetry recording including confidence calculation and persistence
 
 import { persistConversation } from '../sql/persistenceService.js';
-import { ENV } from '../../config/env.js';
+import { config } from '../../config/index.js';
 
 /**
  * Record telemetry data in background with confidence calculation
@@ -12,7 +12,7 @@ import { ENV } from '../../config/env.js';
  */
 export function recordTelemetry({ question, structured }) {
   // Only record if telemetry is enabled
-  if (!ENV.RETRIEVAL_TELEMETRY_ENABLED) {
+  if (!config.RETRIEVAL_TELEMETRY_ENABLED) {
     return;
   }
 
@@ -46,7 +46,7 @@ export function recordTelemetry({ question, structured }) {
       });
     } catch (e) {
       // Only log errors in non-production environments
-      if (process.env.NODE_ENV !== 'production') {
+      if (config.NODE_ENV !== 'production') {
         console.warn('[persist/cache] error:', e.message);
       }
     }

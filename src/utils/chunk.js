@@ -1,7 +1,9 @@
+import { config } from '../config/index.js';
+
 export function chunkText(
   text,
-  maxChars = Number(process.env.CHUNK_MAX_CHARS || 3500),
-  overlap  = Number(process.env.CHUNK_OVERLAP   || 200)
+  maxChars = config.CHUNK_MAX_CHARS,
+  overlap = config.CHUNK_OVERLAP
 ) {
   if (!text) return [];
   const cleaned = String(text).replace(/\r/g, '').trim();

@@ -20,11 +20,17 @@ Object.assign(process.env, TEST_ENV);
 let bffRouter;
 let routerLoadError = null;
 
-// Try to load the actual router, with fallback
+// Try to load the actual router, error middleware, and requestId middleware
+let errorHandler = null;
+let requestIdMiddleware = null;
 try {
   const routerModule = await import('../../src/routes/bff.js');
+  const errorModule = await import('../../src/middleware/error.js');
+  const requestIdModule = await import('../../src/middleware/requestId.js');
   bffRouter = routerModule.default;
-  console.log('✅ Loaded actual BFF router for testing');
+  errorHandler = errorModule.errorHandler;
+  requestIdMiddleware = requestIdModule.requestId;
+  console.log('✅ Loaded actual BFF router, error handler, and requestId middleware for testing');
 } catch (error) {
   routerLoadError = error;
   console.warn('⚠️  Could not load BFF router:', error.message);
@@ -59,6 +65,11 @@ export function createIsolatedTestServer() {
   // Basic middleware for tests
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true }));
+  
+  // Add requestId middleware if available
+  if (requestIdMiddleware) {
+    app.use(requestIdMiddleware);
+  }
 
   // Health check that's different from main app
   app.get('/test-health', (req, res) => {
@@ -74,15 +85,20 @@ export function createIsolatedTestServer() {
   // Mount BFF routes (real or mock)
   app.use('/bff', bffRouter);
 
-  // Test-specific error handler
-  app.use((err, req, res, next) => {
-    console.error('Test server error:', err.message);
-    res.status(500).json({ 
-      error: 'Test server error', 
-      message: err.message,
-      test: true 
+  // Use real error handler if available, fallback to test handler
+  if (errorHandler) {
+    app.use(errorHandler);
+  } else {
+    // Fallback test-specific error handler
+    app.use((err, req, res, next) => {
+      console.error('Test server error:', err.message);
+      res.status(500).json({ 
+        error: 'Test server error', 
+        message: err.message,
+        test: true 
+      });
     });
-  });
+  }
 
   return app;
 }
