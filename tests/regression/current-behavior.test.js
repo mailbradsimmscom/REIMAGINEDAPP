@@ -87,14 +87,15 @@ describe('Current System Behavior - ROBUST', () => {
       }
     }
 
-    console.log('GPS Response Analysis:', {
+    const analysisData = {
       hasError: !!body.error,
       hasAssets: body.hasOwnProperty('assets'),
       hasPlaybooks: body.hasOwnProperty('playbooks'),
       assetsCount: Array.isArray(body.assets) ? body.assets.length : 'n/a',
       playbooksCount: Array.isArray(body.playbooks) ? body.playbooks.length : 'n/a',
       summaryPresent: body.summary !== null && body.summary !== undefined
-    });
+    };
+    console.log(`GPS Response Analysis: ${JSON.stringify(analysisData)}`);
   });
 
   test('Watermaker question response structure', async () => {
@@ -118,11 +119,12 @@ describe('Current System Behavior - ROBUST', () => {
       assert(hasBasicStructure, 'Response should have at least one expected property');
     }
 
-    console.log('Watermaker Response Structure:', {
+    const structureData = {
       responseKeys: Object.keys(body),
       hasError: !!body.error,
       responseSize: JSON.stringify(body).length
-    });
+    };
+    console.log(`Watermaker Response Structure: ${JSON.stringify(structureData)}`);
   });
 
   test('API handles different question types', async () => {
